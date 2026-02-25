@@ -12,20 +12,6 @@ import uuid
 
 
 class Agent(models.Model):
-    """
-    Agent model representing a call center agent.
-    
-    Tracks agent identity, contact information, and availability settings.
-    """
-    
-    # STATUS_CHOICES = [
-    #     ('available', 'Available'),
-    #     ('busy', 'Busy'),
-    #     ('break', 'Break'),
-    #     ('offline', 'Offline'),
-    #     ('on_call', 'On Call'),
-    # ]
-
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -43,18 +29,16 @@ class Agent(models.Model):
         default=True,
         help_text="Whether agent is enabled in the system"
     )
+
+    freeswitch_password = models.CharField(
+        max_length=255,
+        help_text="FreeSWITCH password for the agent extension",
+        null=True
+    )
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    # class Meta:
-        # ordering = ['agent_id']
-        # indexes = [
-        #     models.Index(fields=['agent_id']),
-        #     models.Index(fields=['status']),
-        #     models.Index(fields=['is_active']),
-        # ]
     
     def __str__(self):
         return f"{self.id} ({self.extension})"

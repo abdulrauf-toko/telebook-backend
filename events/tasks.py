@@ -13,8 +13,8 @@ from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
 from voice_orchestrator.redis import SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from .utils import connect_agent_to_call, disconnect_call, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, bridge_agent_to_call, get_next_available_sales_agent, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent
-from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent
+from .utils import connect_agent_to_call, disconnect_call, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, bridge_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
+from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
 logger = logging.getLogger('events')
 
 # ============================================================================
@@ -69,18 +69,14 @@ def dispatch_event_handler(event) -> str:
         variable_uuid = event.getHeader("variable_uuid") #call_uuid
         auto_bridge = event.getHeader("variable_sip_h_X-auto_bridge", None)
         agent_id = event.getHeader("variable_sip_h_X-agent_id", None)
-
-        # if event_type == 'CHANNEL_CREATE':
-        #     #nothing to do here. 
-        #     pass
         
         if event_type == 'CHANNEL_ANSWER':
             if direction == 'outbound':
                 if not other_leg_uuid: #first answer
                     if not auto_bridge: #lead picked up first
                         if agent_id: #if agent is assigned to this lead, check if idle and connect. all leads except aquisition 
-                            if is_agent_idle_in_cache(agent_id):
-                                connect_agent_to_call(agent_id, variable_uuid)
+                            if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
+                                connect_agent_to_call(agent_id, variable_uuid) #already removed at dialer
                             else: #if not idle, disconnect call and add lead back to queue
                                 disconnect_call(variable_uuid, cause="AGENT_BUSY")
                                 call_details = remove_active_call(variable_uuid)
@@ -117,7 +113,7 @@ def dispatch_event_handler(event) -> str:
                 #     event.get('variable_caller_id_number') or 
                 #     event.get('variable_origination_caller_id_number')
                 # )
-                mark_agent_idle_in_cache(transferor)
+                mark_agent_idle_in_cache(transferor) 
                 mark_agent_busy_in_cache(new_destination)
 
         elif event_type == 'CHANNEL_PARK':
@@ -132,20 +128,36 @@ def dispatch_event_handler(event) -> str:
                     logger.error('invalid ivr choice')
                     return
                 if agent_id:
+                    mark_agent_busy_in_cache(agent_id, uuid)
                     transfer_call(uuid, agent_id)
                 else:
-                    logger.error('NO AGENTS FREE for inbound calling') #TODO implement further waiting
+                    team = 'support' if selection == '1' else 'secondary_sales'
+                    add_customer_to_waiting_queue(uuid, team)
+                    transfer_call(uuid, "waiting_room") #make sure this exists in freeswitch config 
+                    
         
         elif event_type == 'CHANNEL_HANGUP_COMPLETE':
+            hangup_cause = event.get('variable_hangup_cause')
             call_details = remove_active_call(variable_uuid)
             if not agent_id:
                 agent_id = call_details.get('agent_id', None) if call_details else None
-            if agent_id:
-                handle_free_agent(agent_id)
             
-            if event.getHeader("Hangup-Cause") in ['NO_AVAILABLE_AGENT', 'AGENT_BUSY']:
+            if hangup_cause in ['NO_AVAILABLE_AGENT', 'AGENT_BUSY', 'LOSE_RACE']:
                 if call_details and call_details.get('payload', None):
                     add_to_priority_queue_mapping(agent_id, call_details)
+
+            if hangup_cause in ['BLIND_TRANSFER', 'ATTENDED_TRANSFER', 'TRANSFER']:
+                transferor_ext = (
+                    event.get('variable_user_name') or 
+                    event.get('Caller-Caller-ID-Number') or 
+                    event.get('variable_origination_caller_id_number')
+                )
+                # Mark the transferor agent as idle
+                #TODO probably handled in transfer
+
+            if hangup_cause == 'NORMAL_CLEARING':
+                if agent_id:
+                    handle_free_agent(agent_id)
             
             call_ending_routine(call_details, event, direction)
         else:
@@ -227,3 +239,33 @@ def sync_to_db(self):
 
     except Exception as e:
         logger.exception(f"Error syncing call log to DB for call_id {call_details.get('call_id')}: {e}")
+
+
+@app.task
+def waiting_room_task():
+    while True:
+        try:
+            # Check support team waiting queue
+            support_customer = get_next_customer_waiting_in_queue('support')
+            if support_customer:
+                agent_id = get_next_available_support_agent()
+                if agent_id:
+                    mark_agent_busy_in_cache(agent_id, support_customer)
+                    connect_agent_to_call(agent_id, support_customer)
+                    remove_customer_from_waiting_queue(support_customer)
+                    logger.info(f"Connected support customer {support_customer} to agent {agent_id}")
+
+            # Check secondary_sales team waiting queue
+            secondary_sales_customer = get_next_customer_waiting_in_queue('secondary_sales')
+            if secondary_sales_customer:
+                agent_id = get_next_available_secondary_sales_agent()
+                if agent_id:
+                    mark_agent_busy_in_cache(agent_id, secondary_sales_customer)
+                    connect_agent_to_call(agent_id, secondary_sales_customer)
+                    remove_customer_from_waiting_queue(secondary_sales_customer)
+                    logger.info(f"Connected secondary_sales customer {secondary_sales_customer} to agent {agent_id}")
+
+            time.sleep(2) # to reduce cpu usage
+        except Exception as e:
+            logger.exception(f"Error in waiting_room_task: {e}")
+            time.sleep(3)

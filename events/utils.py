@@ -1,10 +1,9 @@
 import orjson as json
-from events.tasks import sync_to_db
-from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY
+from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import logging
 import time
 from voice_orchestrator.freeswitch import fs_manager
-from dialer.utils import add_call_to_completed_list, add_sales_agent_to_queue, get_agent_team, add_support_agent_to_queue, get_pending_support_agent, get_pending_sales_agent, get_next_available_support_agent, get_next_available_sales_agent, add_to_priority_queue_mapping, get_agent_extension
+from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_to_queue, get_agent_extension, get_agent_team, add_sales_agent_to_queue, add_support_agent_to_queue
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +90,7 @@ def mark_agent_idle_in_cache(agent_id): #changes both state and adds to queue.
                 queue_key = SALES_AGENT_QUEUE_REDIS_KEY
             else:
                 queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-            agent_data.update({"state": "idle", "current_call_id": None})
+            agent_data.update({"state": "idle", "current_call_id": None, 'call_initiated_at': None})
 
             #Pipe ensures both updates is done via a single round-trip. Better for performance
             with conn.pipeline() as pipe:
@@ -125,7 +124,8 @@ def mark_agent_busy_in_cache(agent_id, call_id):
             # Update agent state
             agent_data.update({
                 "state": "busy",
-                "current_call_id": call_id
+                "current_call_id": call_id,
+                "call_initiated_at": time.time()
             })
 
             if agent_data.get('team') == 'sales':
@@ -237,6 +237,48 @@ def remove_agent_from_cache(agent_id):
     finally:
         if agent_lock.owned():
             agent_lock.release()
+
+
+def logout_agent(agent_id) -> bool:
+    """
+    Logout an agent and disconnect all active calls associated with them.
+    """
+    try:
+        # Get agent data before removing
+        raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+        if not raw_data:
+            logger.warning(f"Agent {agent_id} not found in cache")
+            return False
+        
+        agent_data = json.loads(raw_data)
+        removal_result = remove_agent_from_cache(agent_id)
+        current_call_id = agent_data.get("current_call_id")
+        
+        # Disconnect the current call if agent is on a call
+        if current_call_id:
+            disconnect_call(current_call_id, cause="AGENT_LOGOUT")
+            logger.info(f"Disconnected call {current_call_id} for agent {agent_id} logout")
+        
+        # Remove agent from cache (state and queue)
+        raw_data = conn.hget(ACTIVE_CALLS_REDIS_KEY, agent_id)
+        if raw_data:
+            calls = json.loads(raw_data)
+            for call_uid, details in calls.items():
+                agent_id = details.get('agent_id', None)
+                if agent_id:
+                    disconnect_call(call_uid)
+        
+        if removal_result:
+            logger.info(f"Agent {agent_id} successfully logged out")
+            return True
+        else:
+            logger.error(f"Failed to remove agent {agent_id} from cache during logout")
+            return False
+            
+    except Exception as e:
+        logger.exception(f"Error during agent logout for {agent_id}: {e}")
+        return False
+    
     
 
 
@@ -374,31 +416,25 @@ def transfer_call(call_uuid, agent_id):
     context = "default"
     command = f"uuid_transfer {call_uuid} {extension} {dialplan} {context}"
     return fs_manager.bgapi(command)
-    
-
-def handle_no_available_sales_agents(event_obj):
-    result = disconnect_call(call_uuid=event_obj.channel_uuid, cause="LOSE_RACE")
-    if not result:
-        pass #TODO handle fallback logic
-    add_to_priority_queue_mapping(event_obj.caller_id_number)
-    return {"status": "disconnected", 'message': "no agents free"} 
 
 
 def handle_free_agent(agent_id):
     mark_agent_idle_in_cache(agent_id)
-    # agent_team = get_agent_team(agent_id)
-    # if agent_team == 'support':
-    #     add_support_agent_to_queue(agent_id)
-    # elif agent_team == "sales":
-    #     add_sales_agent_to_queue(agent_id)
-    # elif agent_team == 'secondary_sales':
-    #     add_sales_agent_to_queue(agent_id) #TODO change this. 
+    agent_team = get_agent_team(agent_id)
+    if agent_team == 'support':
+        add_support_agent_to_queue(agent_id)
+    elif agent_team == "sales":
+        add_sales_agent_to_queue(agent_id)
+    elif agent_team == 'secondary_sales':
+        add_secondary_sales_agent_to_queue(agent_id)
 
 
 def map_call_status(hangup_cause):
     return FS_TO_DJANGO_STATUS.get(hangup_cause)
 
 def sync_to_db_wrapper():
+    from events.tasks import sync_to_db
+
     if conn.get(SYNC_TO_DB_LOCK_REDIS_KEY):
         logger.info("Sync to DB already in progress by another worker. Skipping this run.")
         return False
@@ -413,3 +449,44 @@ def call_ending_routine(call_details, event, direction):
         call_details['direction'] = direction
         add_call_to_completed_list(call_details)
         sync_to_db_wrapper()
+
+
+def add_customer_to_waiting_queue(call_id: str, team: str) -> bool:
+    try:
+        if team == 'support':
+            key = SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        elif team == "secondary_sales":
+            key = SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        conn.rpush(key, call_id)
+        logger.info(f"Added customer {call_id} to waiting queue")
+        return True
+    except Exception as e:
+        logger.error(f"Error adding customer {call_id} to waiting queue: {e}")
+        return False
+
+
+def remove_customer_from_waiting_queue(call_id: str, team: str) -> bool:
+    try:
+        if team == 'support':
+            key = SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        elif team == "secondary_sales":
+            key = SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        conn.lrem(key, 0, call_id)
+        logger.info(f"Removed customer {call_id} from waiting queue")
+        return True
+    except Exception as e:
+        logger.error(f"Error removing customer {call_id} from waiting queue: {e}")
+        return False
+
+
+def get_next_customer_waiting_in_queue(team: str) -> str:
+    try:
+        if team == 'support':
+            key = SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        elif team == "secondary_sales":
+            key = SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+        customer_call_id = conn.lindex(key, 0)
+        return customer_call_id
+    except Exception as e:
+        logger.error(f"Error retrieving next waiting customer: {e}")
+        return None

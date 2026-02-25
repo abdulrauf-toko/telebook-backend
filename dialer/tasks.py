@@ -1,15 +1,15 @@
 import orjson as json
 import logging
-from voice_orchestrator.redis import conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY
+from voice_orchestrator.redis import conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY
 from django.utils import timezone
 from CELERY_INIT import app
 import time
-from .utils import get_all_idle_sales_agents, get_all_active_sales_calls, get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, get_next_available_sales_agent, make_outbound_call_helper_aquisition
+from .utils import get_all_idle_sales_agents, get_all_active_sales_calls, get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, make_outbound_call_helper_aquisition
 from collections import defaultdict
 from .models import Agent, CallLog, Lead, Campaign
 from django.db.models import Case, When, IntegerField
 from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
-from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache
+from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ def initiate_dialer_cycle(self):
 
         logger.info("=== DIALER CYCLE START ===")
         cycle_start = timezone.now()
+        validate_and_cleanup_agent_states() #cleanup before processing priority queue to ensure we have the most accurate agent states. 
+
         
         # Step 1: Calculate effective agent capacity
         agent_capacity = len(get_all_idle_agents_in_cache(check_call_id=True, check_state=True))
@@ -132,7 +134,8 @@ def process_priority_queue() -> int:
     try:
         
         if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
-            # Get priority queue size
+        
+            # Get priority queue
             priority_queue_mapping = get_priority_queue_mapping()
 
             if not priority_queue_mapping:
@@ -512,3 +515,74 @@ def get_aquisition_set():
         logger.error(f"Error retrieving agent set: {e}")
         return set()
 
+
+# ============================================================================
+# AGENT VALIDATION AND CLEANUP
+# ============================================================================
+
+def validate_and_cleanup_agent_states():
+    """
+    Validates all agent states and handles orphaned calls.
+    
+    For each busy agent:
+    1. If current_call_id exists, check if it's in active calls. If not, mark agent idle.
+    2. If current_call_id is None and call_initiated_at is > 90 seconds ago, mark agent idle.
+    
+    This prevents agents from being stuck in "busy" state when their calls are orphaned.
+    """
+    
+    try:
+        # Get all agent states
+        all_agent_states = conn.hgetall(AGENT_STATE_REDIS_KEY)
+        if not all_agent_states:
+            logger.info("No agent states to validate")
+            return
+        
+        active_calls = conn.hgetall(ACTIVE_CALLS_REDIS_KEY)
+        current_time = time.time()
+        cleanup_count = 0
+        
+        for agent_id, raw_agent_data in all_agent_states.items():
+            try:
+                agent_data = json.loads(raw_agent_data)
+                
+                # Skip if agent is not busy
+                if agent_data.get('state') != 'busy':
+                    continue
+                
+                current_call_id = agent_data.get('current_call_id')
+                call_initiated_at = agent_data.get('call_initiated_at')
+                
+                # Case 1: Agent has a call_id but it doesn't exist in active calls
+                if current_call_id:
+                    if current_call_id not in active_calls:
+                        logger.warning(
+                            f"Agent {agent_id} has orphaned call {current_call_id}. "
+                            f"Marking agent idle."
+                        )
+                        handle_free_agent(agent_id)
+                        cleanup_count += 1
+                
+                # Case 2: Agent has no call_id but initiated_at is over 90 seconds ago
+                elif call_initiated_at is not None and current_time - call_initiated_at > 90:
+                    logger.warning(
+                        f"Agent {agent_id} is busy with no call for > 90s "
+                        f"(initiated_at: {call_initiated_at}). Marking agent idle."
+                    )
+                    handle_free_agent(agent_id)
+                    cleanup_count += 1
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode agent state for {agent_id}")
+                continue
+            except Exception as e:
+                logger.error(f"Error validating agent {agent_id}: {e}")
+                continue
+        
+        if cleanup_count > 0:
+            logger.info(f"Cleaned up {cleanup_count} orphaned agent states")
+        else:
+            logger.debug("No orphaned agent states found")
+            
+    except Exception as e:
+        logger.exception(f"Error in validate_and_cleanup_agent_states: {e}")

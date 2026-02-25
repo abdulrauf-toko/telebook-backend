@@ -7,7 +7,7 @@ import logging
 import time
 from django.utils import timezone
 from .models import Agent
-from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
+# from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
 from typing import Dict, List, Tuple, Optional
 import uuid
 from voice_orchestrator.freeswitch import fs_manager
@@ -136,6 +136,9 @@ def add_sales_agent_to_queue(agent_id):
 
 def add_support_agent_to_queue(agent_id):
     conn.zadd(SUPPORT_AGENT_QUEUE_REDIS_KEY, {agent_id: time.time()})
+
+def add_secondary_sales_agent_to_queue(agent_id):
+    conn.zadd(SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, {agent_id: time.time()})
 
 def remove_agent_from_sales_queue(agent_id):
     try:
@@ -284,6 +287,8 @@ def get_agent_extension(agent_id):
 
 
 def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
+    from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
+
     calls_dialed = 0
     removed = False
 
@@ -358,6 +363,8 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
 
 
 def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
+    from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache
+    
     calls_dialed = 0
     removed = False
 
