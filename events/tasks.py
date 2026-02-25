@@ -76,11 +76,11 @@ def dispatch_event_handler(event) -> str:
                     if not auto_bridge: #lead picked up first
                         if agent_id: #if agent is assigned to this lead, check if idle and connect. all leads except aquisition 
                             if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
-                                connect_agent_to_call(agent_id, variable_uuid) #already removed at dialer
+                                connect_agent_to_call(agent_id, variable_uuid)
                             else: #if not idle, disconnect call and add lead back to queue
                                 disconnect_call(variable_uuid, cause="AGENT_BUSY")
-                                call_details = remove_active_call(variable_uuid)
-                                add_to_priority_queue_mapping(agent_id, call_details.get('payload', None))
+                                # call_details = remove_active_call(variable_uuid)
+                                # add_to_priority_queue_mapping(agent_id, call_details.get('payload', None))  handling this after call ends
                         else: #aquisition calls with no agents
                             agent_id = get_next_available_sales_agent()
                             if not agent_id:
@@ -89,8 +89,8 @@ def dispatch_event_handler(event) -> str:
                                 connect_agent_to_call(agent_id, variable_uuid)
                             else:
                                 disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
-                                call_details = remove_active_call(variable_uuid)
-                                add_to_priority_queue_mapping(agent_id='0', entry=call_details.get('payload', None)) #agent id 0 indicates no specific agent is assigned
+                                # call_details = remove_active_call(variable_uuid)
+                                # add_to_priority_queue_mapping(agent_id='0', entry=call_details.get('payload', None)) #agent id 0 indicates no specific agent is assigned
 
                 else:
                     update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})

@@ -1,5 +1,5 @@
 import orjson as json
-from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import logging
 import time
 from voice_orchestrator.freeswitch import fs_manager
@@ -50,6 +50,8 @@ def mark_agent_logged_in_cache(agent_id, team):
             
             if agent_data.get('team') == 'sales':
                 queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+            elif agent_data.get('team') == 'secondary_sales':
+                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
             else:
                 queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
 
@@ -88,6 +90,8 @@ def mark_agent_idle_in_cache(agent_id): #changes both state and adds to queue.
             agent_data = json.loads(raw_data)
             if agent_data.get('team') == 'sales':
                 queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+            elif agent_data.get('team') == 'secondary_sales':
+                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
             else:
                 queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
             agent_data.update({"state": "idle", "current_call_id": None, 'call_initiated_at': None})
@@ -110,7 +114,7 @@ def mark_agent_idle_in_cache(agent_id): #changes both state and adds to queue.
         if agent_lock.owned():
             agent_lock.release()
 
-def mark_agent_busy_in_cache(agent_id, call_id):
+def mark_agent_busy_in_cache(agent_id, call_id, remove_from_queue=True):
     lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
     agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
 
@@ -130,12 +134,15 @@ def mark_agent_busy_in_cache(agent_id, call_id):
 
             if agent_data.get('team') == 'sales':
                 queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+            elif agent_data.get('team') == 'secondary_sales':
+                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
             else:
                 queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
 
             with conn.pipeline() as pipe:
                 pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-                pipe.zrem(queue_key, agent_id)  # remove from idle queue
+                if remove_from_queue:
+                    pipe.zrem(queue_key, agent_id)  # remove from idle queue
                 pipe.execute()
 
             return True
@@ -153,6 +160,9 @@ def mark_agent_busy_in_cache(agent_id, call_id):
 
 
 def is_agent_idle_in_cache(agent_id, check_call_id=False, check_state=True):
+    if agent_id == "0":
+        return True
+    
     lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
     agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
 
@@ -220,6 +230,8 @@ def remove_agent_from_cache(agent_id):
             agent_data = json.loads(raw_data)
             if agent_data.get('team') == 'sales':
                 queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+            elif agent_data.get('team') == 'secondary_sales':
+                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
             else:
                 queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
 

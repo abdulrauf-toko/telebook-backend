@@ -37,7 +37,7 @@ def initiate_dialer_cycle(self):
 
         logger.info("=== DIALER CYCLE START ===")
         cycle_start = timezone.now()
-        validate_and_cleanup_agent_states() #cleanup before processing priority queue to ensure we have the most accurate agent states. 
+        validate_and_cleanup_agent_states() #cleanup before processing to ensure we have the most accurate agent states. 
 
         
         # Step 1: Calculate effective agent capacity
@@ -145,7 +145,7 @@ def process_priority_queue() -> int:
             for agent_id, leads in priority_queue_mapping.items():
                 if not leads: #list empty
                     continue 
-
+                
                 if not is_agent_idle_in_cache(agent_id=agent_id, check_call_id=True, check_state=True):
                     logger.info(f"Agent {agent_id} is not idle, skipping")
                     continue

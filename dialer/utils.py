@@ -304,8 +304,6 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
         if not is_agent_idle_in_cache(agent_id):
             remove_agent_from_sales_queue(agent_id)
             return calls_dialed, leads
-    else:
-        logger.error('agent_id cannot be 0 without auto bridge')
 
     lead_queue = deque(leads)
     
@@ -394,7 +392,7 @@ def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
 
         if success:
             if not removed:
-                success = mark_agent_busy_in_cache(agent_id, None) #mark busy without call id for predictive dialer logic
+                success = mark_agent_busy_in_cache(agent_id, None, remove_from_queue=False) #mark busy without call id for predictive dialer logic, remove form queue after deciding at pickup
 
                 if not success:
                     return calls_dialed, list(lead_queue) #if we fail to mark agent busy, we should not proceed with more calls
