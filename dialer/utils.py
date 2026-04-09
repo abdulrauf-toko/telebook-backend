@@ -11,7 +11,7 @@ from .models import Agent
 from typing import Dict, List, Tuple, Optional
 import uuid
 from voice_orchestrator.freeswitch import fs_manager
-from voice_orchestrator.constants import ORIGINATE_TIMEOUT
+from voice_orchestrator.constants import ORIGINATE_TIMEOUT, TOKOLAB_NUMBER
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -334,7 +334,7 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
                 success = remove_agent_from_sales_queue(agent_id)
                 if success:
                     if auto_bridge:
-                        success = mark_agent_busy_in_cache(agent_id, call_uuid) #mark busy without call id for predictive dialer logic
+                        success = mark_agent_busy_in_cache(agent_id, call_uuid) #mark busy with call id
                     else:
                         success = mark_agent_busy_in_cache(agent_id, None) #mark busy without call id for predictive dialer logic
 
@@ -476,7 +476,7 @@ def build_originate_command(
 
         if park:
             application = '&park' 
-            payload['originate_timeout'] = ORIGINATE_TIMEOUT #disconnect after x seconds if fails to bridge
+            payload['originate_timeout'] = ORIGINATE_TIMEOUT #disconnect after x seconds if fails to bridge #TODO FIGURE OUT WHICH LEG IT SHOULD BE
         else:
             application = "&bridge"
 
@@ -491,11 +491,11 @@ def build_originate_command(
         if settings.ENV == 'PROD':
             call_string = f"sofia/external/{phone_number}"
         else:
-            call_string = f"user/{phone_number}" #phone number is extension (eg 1000)
+            call_string = f"user/{phone_number}" #phone number is extension (eg 1000) #TODO i believe this should be the call string when auto bridge so that the softphone rings first
 
         
         originate_cmd = (
-            f"originate {{{var_string}}}{call_string} {application}{bridge_to_string}"
+            f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},{var_string}}}{call_string} {application}{bridge_to_string}"
         )
         
         return originate_cmd

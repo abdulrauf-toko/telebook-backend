@@ -28,12 +28,13 @@ DEBUG = True
 
 ENV = 'LOCAL'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5500",  # Your frontend origin
-    "http://localhost:5500",  # Optional: Add this if needed
-]
+# CORS_ALLOWED_ORIGINS = [
+#     "*"  # Optional: Add this if needed
+# ]
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -285,6 +286,8 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 FREESWITCH_ESL_HOST = os.getenv('FREESWITCH_ESL_HOST', 'localhost')
 FREESWITCH_ESL_PORT = int(os.getenv('FREESWITCH_ESL_PORT', '8021'))
 FREESWITCH_ESL_PASSWORD = os.getenv('FREESWITCH_ESL_PASSWORD', 'ClueCon')
+
+FS_DIR = "/home/abdulrauf/Desktop/freeswitch-docker/freeswitch/conf/directory"
 
 # Event Processing
 FREESWITCH_EVENTS_CHANNEL = 'freeswitch:events'

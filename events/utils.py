@@ -170,6 +170,7 @@ def is_agent_idle_in_cache(agent_id, check_call_id=False, check_state=True):
         if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
             raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
             if not raw_data:
+                logger.warning(f"Agent {agent_id} not found in cache when checking idle state")
                 return False  # Agent not found or logged out
 
             agent_data = json.loads(raw_data)
@@ -450,8 +451,8 @@ def sync_to_db_wrapper():
     if conn.get(SYNC_TO_DB_LOCK_REDIS_KEY):
         logger.info("Sync to DB already in progress by another worker. Skipping this run.")
         return False
-    conn.set(SYNC_TO_DB_LOCK_REDIS_KEY, "locked", ex=5)
-    sync_to_db.apply_async(countdown=5)
+    conn.set(SYNC_TO_DB_LOCK_REDIS_KEY, "locked", ex=30)
+    sync_to_db.apply_async(countdown=30)
 
 def call_ending_routine(call_details, event, direction):
     if call_details:

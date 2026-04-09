@@ -96,6 +96,8 @@ def dispatch_event_handler(event) -> str:
                     update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
             else:
                 # this case is for inbound pick ups. Since IVR is handled by freeswtich, we only connect the agent at park event 
+                # TODO This branch is also when a call is made from softphone dialer
+                # need to handle the case probably. 
                 pass
 
         elif event_type == 'CHANNEL_EXECUTE':
@@ -115,6 +117,7 @@ def dispatch_event_handler(event) -> str:
                 # )
                 mark_agent_idle_in_cache(transferor) 
                 mark_agent_busy_in_cache(new_destination)
+                #TODO transfer commands probably in case softphone isn't handling. 
 
         elif event_type == 'CHANNEL_PARK':
             if direction == 'inbound':

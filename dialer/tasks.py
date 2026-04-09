@@ -201,7 +201,7 @@ def process_secondary_queue() -> int:
                 logger.info("Secondary queue is empty")
                 return 0
 
-            logger.info(f'secondary_queue: {secondary_queue}')
+            # logger.info(f'secondary_queue: {secondary_queue}')
             # # Get pickup ratio (can be per-campaign or global)
             pickup_ratio = DEFAULT_PICKUP_RATIO
             dial_multiplier = max(1, int(1 / pickup_ratio))  # floor(1/y)
@@ -381,10 +381,11 @@ def refill_queue(self):
                 campaign_leads.append(queue_object)
 
                 agent_id = active_campaign.agent.id if active_campaign.agent else 0
+                agent_id = str(agent_id)  # Redis keys must be strings
 
                 # acquisition → default queue
                 if active_campaign.segment == "acquisition":
-                    new_queue[0].append(queue_object)
+                    new_queue["0"].append(queue_object)
                     if not added:
                         add_agent_to_set(agent_id)
                         added = True
