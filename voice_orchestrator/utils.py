@@ -9,7 +9,7 @@ _xml_lock = Lock()
 
 DEFAULT_XML = os.path.join(settings.FS_DIR, "default.xml")
 
-def fs_create_user(extension, password, group):
+def fs_create_user(extension, password, group=None):
     # 1. Write the user XML file
     user_xml = f"""<include>
       <user id="{extension}">
@@ -29,8 +29,9 @@ def fs_create_user(extension, password, group):
     with open(user_file, 'w') as f:
         f.write(user_xml)
 
-    # 2. Add pointer to the group in default.xml
-    fs_add_user_to_group(extension, group)
+    # 2. Add pointer to the group in default.xml if one is provided
+    if group:
+        fs_add_user_to_group(extension, group)
 
     # 3. Reload FreeSWITCH
     fs_manager.api('reloadxml')

@@ -4,10 +4,12 @@ Dialer Models - Core VoIP dialer orchestration entities.
 Models for managing agents, campaigns, calls, and dialer configurations.
 """
 
-from django.db import models
+from django.conf import settings
+from django.db import models, transaction
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
+from voice_orchestrator.utils import fs_create_user, fs_delete_user
 import uuid
 
 
@@ -39,7 +41,59 @@ class Agent(models.Model):
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
+    def _get_freeswitch_group(self) -> str | None:
+        if self.user is None:
+            return None
+
+        first_group = self.user.groups.first()
+        if first_group is not None:
+            return first_group.name
+
+        return getattr(settings, 'DEFAULT_FS_GROUP', None)
+
+    def _sync_freeswitch_user(self, old_agent: 'Agent' | None = None) -> None:
+        if not self.extension or not self.freeswitch_password:
+            if old_agent is not None and old_agent.extension:
+                fs_delete_user(old_agent.extension)
+            return
+
+        current_group = self._get_freeswitch_group()
+
+        if old_agent is None:
+            fs_create_user(self.extension, self.freeswitch_password, current_group)
+            return
+
+        if old_agent.extension != self.extension:
+            if old_agent.extension:
+                fs_delete_user(old_agent.extension)
+            fs_create_user(self.extension, self.freeswitch_password, current_group)
+            return
+
+        old_group = old_agent._get_freeswitch_group()
+        if old_group != current_group:
+            fs_delete_user(self.extension)
+            fs_create_user(self.extension, self.freeswitch_password, current_group)
+            return
+
+        fs_create_user(self.extension, self.freeswitch_password, current_group)
+
+    def save(self, *args, **kwargs):
+        old_agent = None
+        if self.pk is not None:
+            old_agent = Agent.objects.filter(pk=self.pk).first()
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            self._sync_freeswitch_user(old_agent)
+
+    def delete(self, *args, **kwargs):
+        extension = self.extension
+        with transaction.atomic():
+            super().delete(*args, **kwargs)
+            if extension:
+                fs_delete_user(extension)
+
     def __str__(self):
         return f"{self.id} ({self.extension})"
 
