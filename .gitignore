@@ -25,3 +25,4 @@ dialer/migrations/
 orchestrator_env/
 venv/
 .coverage
+voice_env/

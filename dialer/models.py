@@ -52,7 +52,7 @@ class Agent(models.Model):
 
         return getattr(settings, 'DEFAULT_FS_GROUP', None)
 
-    def _sync_freeswitch_user(self, old_agent: 'Agent' | None = None) -> None:
+    def _sync_freeswitch_user(self, old_agent = None) -> None:
         if not self.extension or not self.freeswitch_password:
             if old_agent is not None and old_agent.extension:
                 fs_delete_user(old_agent.extension)

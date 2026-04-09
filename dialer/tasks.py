@@ -2,7 +2,7 @@ import orjson as json
 import logging
 from voice_orchestrator.redis import conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY
 from django.utils import timezone
-from CELERY_INIT import app
+from voice_orchestrator.celery import app
 import time
 from .utils import get_all_idle_sales_agents, get_all_active_sales_calls, get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, make_outbound_call_helper_aquisition
 from collections import defaultdict

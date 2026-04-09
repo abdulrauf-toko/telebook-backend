@@ -7,8 +7,7 @@ Events are processed in the default queue (parallel processing).
 
 import logging
 from datetime import datetime
-from typing import Dict, Optional
-from CELERY_INIT import app
+from voice_orchestrator.celery import app
 from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
