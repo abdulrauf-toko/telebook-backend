@@ -282,9 +282,10 @@ FREESWITCH_ESL_HOST = os.getenv('FREESWITCH_ESL_HOST', 'localhost')
 FREESWITCH_ESL_PORT = int(os.getenv('FREESWITCH_ESL_PORT', '8021'))
 FREESWITCH_ESL_PASSWORD = os.getenv('FREESWITCH_ESL_PASSWORD', 'ClueCon')
 
-FS_DIR = "/home/abdulrauf/Desktop/freeswitch-docker/freeswitch/conf/directory"
+FS_DIR = "/home/pbx/telebook-pbx/conf/directory"
 
 # Event Processing
 FREESWITCH_EVENTS_CHANNEL = 'freeswitch:events'
 EVENT_BATCH_SIZE = 100
 EVENT_BATCH_TIMEOUT = 5  # seconds
+API_KEY=''

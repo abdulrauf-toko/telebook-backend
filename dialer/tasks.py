@@ -1,4 +1,3 @@
-from turtle import pd
 
 import orjson as json
 import logging
@@ -12,7 +11,7 @@ from .models import Agent, CallLog, Lead, Campaign
 from django.db.models import Case, When, IntegerField
 from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
 from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent
-from udhaar_utils import store_campaigns_from_df
+from .udhaar_utils import store_campaigns_from_df
 import requests
 import pandas as pd
 from io import StringIO

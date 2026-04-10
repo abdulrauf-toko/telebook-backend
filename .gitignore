@@ -18,11 +18,12 @@ build/
 logs/*
 htmlcov/*
 events/__pycache__/
-events/migrations/
+events/migrations/*
 dialer/__pycache__/
-dialer/migrations/
+dialer/migrations/*
 .pytest_cache/
 orchestrator_env/
 venv/
 .coverage
 voice_env/
+staticfiles/
