@@ -288,4 +288,4 @@ FS_DIR = "/home/pbx/telebook-pbx/conf/directory"
 FREESWITCH_EVENTS_CHANNEL = 'freeswitch:events'
 EVENT_BATCH_SIZE = 100
 EVENT_BATCH_TIMEOUT = 5  # seconds
-API_KEY='sadnkjJHDjsf*&*7283rjHJjhfdksj'
+API_KEY=os.getenv('UDHAAR_API_KEY')
