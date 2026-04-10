@@ -246,9 +246,11 @@ def construct_queue_object(campaign, lead):
         "customer_name": lead.customer_name,
         "city": lead.city,
 
-        "customer_segment": lead.customer_segment,
         "month_gmv": lead.month_gmv,
         "overall_gmv": lead.overall_gmv,
+
+        "total_orders": lead.total_orders,
+        "address": lead.address,
 
         
         "last_call_date": (

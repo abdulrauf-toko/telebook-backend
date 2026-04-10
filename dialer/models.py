@@ -37,6 +37,10 @@ class Agent(models.Model):
         help_text="FreeSWITCH password for the agent extension",
         null=True
     )
+
+    telecard_username = models.CharField(
+        max_length=50, null=True, blank=True
+    )
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -242,7 +246,8 @@ class Campaign(models.Model):
     
     campaign_name = models.CharField(
         max_length=255,
-        help_text="Human-readable campaign name"
+        help_text="Human-readable campaign name",
+        null=True
     )
 
     active = models.BooleanField(
@@ -277,7 +282,6 @@ class Campaign(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='draft',
         db_index=True
     )
     
@@ -359,10 +363,10 @@ class Lead(models.Model):
     ]
     
     # Unique identifiers
-    id = models.IntegerField(
-        primary_key=True,
-        db_index=True,
-    )
+    # id = models.IntegerField(
+    #     primary_key=True,
+    #     db_index=True,
+    # ) 
 
     udhaar_lead_id = models.CharField(
         max_length=100,
@@ -385,7 +389,15 @@ class Lead(models.Model):
     city = models.CharField(
         max_length=100,
         blank=True,
+        null=True,
         help_text="Customer city/location"
+    )
+
+    address = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Customer address"
     )
     
     # Campaign association

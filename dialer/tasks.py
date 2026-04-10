@@ -1,3 +1,5 @@
+from turtle import pd
+
 import orjson as json
 import logging
 from voice_orchestrator.redis import conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY
@@ -10,6 +12,11 @@ from .models import Agent, CallLog, Lead, Campaign
 from django.db.models import Case, When, IntegerField
 from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
 from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent
+from udhaar_utils import store_campaigns_from_df
+import requests
+import pandas as pd
+from io import StringIO
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -587,3 +594,66 @@ def validate_and_cleanup_agent_states():
             
     except Exception as e:
         logger.exception(f"Error in validate_and_cleanup_agent_states: {e}")
+
+@app.task(bind=True)
+def fetch_and_store_telebook_campaign(self):
+    MAX_TRIES = 10
+    POLL_INTERVAL = 30  # seconds
+    POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns"
+    headers = {"X-API-Key": settings.API_KEY}
+
+    # Step 1: Trigger the campaign generation
+    try:
+        response = requests.post(POLL_API_URL, headers=headers)
+        data = response.json()
+        if not data.get("success"):
+            logger.error("Failed to trigger campaign: {}".format(data))
+            return
+        poll_id = data["poll_id"]
+        logger.info("Campaign triggered, poll_id: {}".format(poll_id))
+    except Exception as e:
+        logger.exception("Error triggering campaign: {}".format(e))
+        return
+
+    # Step 2: Poll until completed
+    for attempt in range(1, MAX_TRIES + 1):
+        logger.info("Polling attempt {}/{}".format(attempt, MAX_TRIES))
+        time.sleep(POLL_INTERVAL)
+
+        try:
+            poll_response = requests.get(
+                POLL_API_URL,
+                headers=headers,
+                params={"poll_id": poll_id}
+            )
+
+            # CSV is returned when completed
+            if poll_response.headers.get("Content-Type") == "text/csv":
+                logger.info("CSV received, processing...")
+                csv_content = poll_response.content.decode("utf-8")
+                df = pd.read_csv(StringIO(csv_content))
+                process_telebook_csv.delay(df.to_json())  # pass to next task
+                return
+
+            result = poll_response.json()
+            status = result.get("status")
+
+            if status == "pending":
+                logger.info("Still pending...")
+                continue
+            elif status == "failed":
+                logger.error("Campaign generation failed on server side")
+                return
+
+        except Exception as e:
+            logger.exception("Error polling: {}".format(e))
+            continue
+
+    logger.error("Max polling attempts ({}) reached without completion".format(MAX_TRIES))
+
+
+@app.task
+def process_telebook_csv(df_json):
+    df = pd.read_json(df_json)
+    store_campaigns_from_df(df)
+
