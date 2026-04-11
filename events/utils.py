@@ -398,6 +398,7 @@ def bridge_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
     agent_destination = f"user/{extension}"
     result = fs_manager.api(f"uuid_bridge {call_uuid} {agent_destination}")
+    logger.info(f"TEMP >>>>>>>>>>>>>>>>>>================ {result}")
     if result.startswith("+OK"):
         logger.info(f"Successfully bridging {call_uuid} to Agent extension: {extension}")
         return True
@@ -416,11 +417,11 @@ def disconnect_call(call_uuid, cause="NORMAL_CLEARING"):
     cmd = f"uuid_kill {call_uuid} {cause}"
     result = fs_manager.api(cmd)
     
-    if result.getBody().startswith("+OK"):
+    if result.startswith("+OK"):
         logger.info(f"Call {call_uuid} has been disconnected.")
         return True
     else:
-        logger.error(f"Failed to disconnect: {result.getBody()}")
+        logger.error(f"Failed to disconnect: {result}")
         return False
     
 def transfer_call(call_uuid, agent_id):
