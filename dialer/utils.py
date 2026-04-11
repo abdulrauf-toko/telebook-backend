@@ -491,7 +491,7 @@ def build_originate_command(
         var_string = ','.join([f"sip_h_X-{k}='{v}'" for k, v in payload.items()])
 
         if settings.ENV == 'PROD':
-            call_string = f"sofia/external/{phone_number}"
+            call_string = f"sofia/gateway/tokolab_trunk/{phone_number}"
         else:
             call_string = f"user/{phone_number}" #phone number is extension (eg 1000) #TODO i believe this should be the call string when auto bridge so that the softphone rings first
 
