@@ -398,7 +398,7 @@ def bridge_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
     agent_destination = f"user/{extension}"
     result = fs_manager.api(f"uuid_bridge {call_uuid} {agent_destination}")
-    if result.getBody().startswith("+OK"):
+    if result.startswith("+OK"):
         logger.info(f"Successfully bridging {call_uuid} to Agent extension: {extension}")
         return True
     return False

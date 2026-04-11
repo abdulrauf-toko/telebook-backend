@@ -65,13 +65,13 @@ def start_esl_listener(self):
 
 def dispatch_event_handler(event) -> str:
     try:
-        event_type = event.getHeader("Event-Name")
-        direction = event.getHeader("Call-Direction")
-        other_leg_uuid = event.getHeader("Other-Leg-Unique-ID", None)
-        caller_id_number = event.getHeader("Caller-Caller-ID-Number", None) #NOT SURE IF THIS IS THE CORRECT ONE. CONFIRM LATER
-        variable_uuid = event.getHeader("variable_uuid") #call_uuid
-        auto_bridge = event.getHeader("variable_sip_h_X-auto_bridge", None)
-        agent_id = event.getHeader("variable_sip_h_X-agent_id", None)
+        event_type = event.headers.get("Event-Name")
+        direction = event.headers.get("Call-Direction")
+        other_leg_uuid = event.headers.get("Other-Leg-Unique-ID", None)
+        caller_id_number = event.headers.get("Caller-Caller-ID-Number", None) #NOT SURE IF THIS IS THE CORRECT ONE. CONFIRM LATER
+        variable_uuid = event.headers.get("variable_uuid") #call_uuid
+        auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
+        agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
         
         if event_type == 'CHANNEL_ANSWER':
             if direction == 'outbound':
@@ -104,19 +104,19 @@ def dispatch_event_handler(event) -> str:
                 pass
 
         elif event_type == 'CHANNEL_EXECUTE':
-            application = event.get('Application')
+            application = event.headers.get('Application')
 
             if application == 'transfer':
-                uuid = event.get('Unique-ID')
+                uuid = event.headers.get('Unique-ID')
                 # The new destination Agent B
-                new_destination = event.get('Application-Data') 
+                new_destination = event.headers.get('Application-Data') 
                 # The agent who did the transferring
-                transferor = event.get('variable_last_sent_callee_id_number')
+                transferor = event.headers.get('variable_last_sent_callee_id_number')
                 # Try these in order to find Agent A
                 # transferor = (
-                #     event.get('variable_last_sent_callee_id_number') or 
-                #     event.get('variable_caller_id_number') or 
-                #     event.get('variable_origination_caller_id_number')
+                #     event.headers.get('variable_last_sent_callee_id_number') or 
+                #     event.headers.get('variable_caller_id_number') or 
+                #     event.headers.get('variable_origination_caller_id_number')
                 # )
                 mark_agent_idle_in_cache(transferor) 
                 mark_agent_busy_in_cache(new_destination)
@@ -124,8 +124,8 @@ def dispatch_event_handler(event) -> str:
 
         elif event_type == 'CHANNEL_PARK':
             if direction == 'inbound':
-                selection = event.get('variable_ivr_choice')
-                uuid = event.get('Unique-ID')
+                selection = event.headers.get('variable_ivr_choice')
+                uuid = event.headers.get('Unique-ID')
                 if selection == "1": #support
                     agent_id = get_next_available_support_agent()
                 elif selection == "2": #sales
@@ -143,7 +143,7 @@ def dispatch_event_handler(event) -> str:
                     
         
         elif event_type == 'CHANNEL_HANGUP_COMPLETE':
-            hangup_cause = event.get('variable_hangup_cause')
+            hangup_cause = event.headers.get('variable_hangup_cause')
             call_details = remove_active_call(variable_uuid)
             if not agent_id:
                 agent_id = call_details.get('agent_id', None) if call_details else None
@@ -154,9 +154,9 @@ def dispatch_event_handler(event) -> str:
 
             if hangup_cause in ['BLIND_TRANSFER', 'ATTENDED_TRANSFER', 'TRANSFER']:
                 transferor_ext = (
-                    event.get('variable_user_name') or 
-                    event.get('Caller-Caller-ID-Number') or 
-                    event.get('variable_origination_caller_id_number')
+                    event.headers.get('variable_user_name') or 
+                    event.headers.get('Caller-Caller-ID-Number') or 
+                    event.headers.get('variable_origination_caller_id_number')
                 )
                 # Mark the transferor agent as idle
                 #TODO probably handled in transfer
