@@ -439,6 +439,12 @@ class Lead(models.Model):
         blank=True,
         help_text="Last contact/call date"
     )
+
+    total_orders = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Total number of orders"
+    )
     
     # Call tracking
     status = models.CharField(
