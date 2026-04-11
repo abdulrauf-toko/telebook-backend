@@ -244,11 +244,11 @@ def process_secondary_queue() -> int:
             conn.hset(AGENT_LEAD_MAPPING_REDIS_KEY, mapping=data_to_store)
 
             logger.info(f"Secondary queue: {total_calls_dialed} calls dialed")
-            return calls_dialed
+            return total_calls_dialed
         
     except Exception as exc:
         logger.exception(f"Error processing secondary queue: {exc}")
-        return calls_dialed
+        return total_calls_dialed
     finally:
         if queue_lock.owned():
             queue_lock.release()
