@@ -598,7 +598,7 @@ def validate_and_cleanup_agent_states():
 def fetch_and_store_telebook_campaign(self):
     MAX_TRIES = 10
     POLL_INTERVAL = 30  # seconds
-    POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns"
+    POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
     headers = {"X-API-Key": settings.API_KEY}
 
     # Step 1: Trigger the campaign generation
