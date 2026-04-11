@@ -34,6 +34,11 @@ REDIS_LOCK_TTL = 10
 
 @shared_task(bind=True)
 def start_esl_listener(self):
+    lock = conn.lock(REDIS_LOCK_KEY, timeout=1)
+    if not lock.acquire(blocking=False):
+        logger.info("ESL listener already running. Exiting.")
+        return
+    
     while True:
         try:
             fs = InboundESL(
