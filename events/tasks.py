@@ -66,6 +66,7 @@ def start_esl_listener(self):
 def dispatch_event_handler(event) -> str:
     try:
         event_type = event.headers.get("Event-Name")
+        logger.info(f"Received event ========>: {event_type}")
         direction = event.headers.get("Call-Direction")
         other_leg_uuid = event.headers.get("Other-Leg-Unique-ID", None)
         caller_id_number = event.headers.get("Caller-Caller-ID-Number", None) #NOT SURE IF THIS IS THE CORRECT ONE. CONFIRM LATER
