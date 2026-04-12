@@ -32,35 +32,35 @@ logger = logging.getLogger(__name__)
 REDIS_LOCK_KEY = "esl_listener_lock"
 REDIS_LOCK_TTL = 10
 
-@shared_task(bind=True)
-def start_esl_listener(self):
-    lock = conn.lock(REDIS_LOCK_KEY, timeout=1)
-    if not lock.acquire(blocking=False):
-        logger.info("ESL listener already running. Exiting.")
-        return
+# @shared_task(bind=True)
+# def start_esl_listener(self):
+#     lock = conn.lock(REDIS_LOCK_KEY, timeout=1)
+#     if not lock.acquire(blocking=False):
+#         logger.info("ESL listener already running. Exiting.")
+#         return
     
-    while True:
-        try:
-            fs = InboundESL(
-                host=settings.FREESWITCH_ESL_HOST,
-                port=settings.FREESWITCH_ESL_PORT,
-                password=settings.FREESWITCH_ESL_PASSWORD
-            )
+#     while True:
+#         try:
+#             fs = InboundESL(
+#                 host=settings.FREESWITCH_ESL_HOST,
+#                 port=settings.FREESWITCH_ESL_PORT,
+#                 password=settings.FREESWITCH_ESL_PASSWORD
+#             )
 
-            fs.connect()
+#             fs.connect()
 
-            fs.send('event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_PARK CHANNEL_EXECUTE')
+#             fs.send('event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_PARK CHANNEL_EXECUTE')
 
-            fs.register_handle('*', dispatch_event_handler)
+#             fs.register_handle('*', dispatch_event_handler)
 
-            logger.info("Freeswitch Connected. Listening for events...")
+#             logger.info("Freeswitch Connected. Listening for events...")
 
-            while fs.connected:
-                fs.process_events()
+#             while fs.connected:
+#                 fs.process_events()
 
-        except Exception as e:
-            logger.exception("ESL connection lost. Reconnecting in 1s...")
-            time.sleep(1)
+#         except Exception as e:
+#             logger.exception("ESL connection lost. Reconnecting in 1s...")
+#             time.sleep(1)
 
 
 def dispatch_event_handler(event) -> str:
@@ -84,8 +84,6 @@ def dispatch_event_handler(event) -> str:
                                 connect_agent_to_call(agent_id, variable_uuid)
                             else: #if not idle, disconnect call and add lead back to queue
                                 disconnect_call(variable_uuid, cause="AGENT_BUSY")
-                                # call_details = remove_active_call(variable_uuid)
-                                # add_to_priority_queue_mapping(agent_id, call_details.get('payload', None))  handling this after call ends
                         else: #aquisition calls with no agents
                             agent_id = get_next_available_sales_agent()
                             if not agent_id:
@@ -94,9 +92,7 @@ def dispatch_event_handler(event) -> str:
                                 connect_agent_to_call(agent_id, variable_uuid)
                             else:
                                 disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
-                                # call_details = remove_active_call(variable_uuid)
-                                # add_to_priority_queue_mapping(agent_id='0', entry=call_details.get('payload', None)) #agent id 0 indicates no specific agent is assigned
-
+                                
                 else:
                     update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
             else:

@@ -31,11 +31,5 @@ app.conf.beat_schedule = {
     'dialer-cycle-every-30-seconds': {
         'task': 'dialer.tasks.initiate_dialer_cycle',
         'schedule': 30.0,
-    },
-    'start-esl-listener': {
-        'task': 'events.tasks.start_esl_listener',
-        'schedule': 60.0,  # tries every 60s, but Redis lock prevents duplicates
-    },
+    }
 }
-
-CELERY_TASK_ROUTES = { 'events.tasks.start_esl_listener': {'queue': 'esl_listener'}, }
