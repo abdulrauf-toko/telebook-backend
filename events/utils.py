@@ -395,6 +395,8 @@ def bridge_call(agent_id, event_obj):
 
 
 def bridge_agent_to_call(call_uuid, agent_id):
+    import time
+    time.sleep(0.5)
     extension = get_agent_extension(agent_id)
     agent_destination = f"user/{extension}"
     result = fs_manager.api(f"originate {agent_destination} {call_uuid}")
