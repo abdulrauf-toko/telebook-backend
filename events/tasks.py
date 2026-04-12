@@ -215,7 +215,7 @@ def sync_to_db(self):
 
             connected_at = fs_timestamp_to_datetime(connected_at)
             ended_at = fs_timestamp_to_datetime(ended_at)
-            
+
             call_log = CallLog.objects.create(
                 call_id=call_uuid,
                 agent_id=agent_id,
@@ -228,8 +228,7 @@ def sync_to_db(self):
                 ended_at=ended_at,
                 duration_seconds=duration_seconds,
                 recording_url=call_details.get('recording_url', ''),
-                recording_stored=call_details.get('recording_stored', False),
-                direction=direction,
+                call_direction=direction,
             )
 
             if call_status in ['answered', 'no_answer', 'busy', 'invalid']:
