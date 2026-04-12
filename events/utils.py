@@ -397,7 +397,7 @@ def bridge_call(agent_id, event_obj):
 def bridge_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
     agent_destination = f"user/{extension}"
-    result = fs_manager.api(f"uuid_bridge {call_uuid} {agent_destination}")
+    result = fs_manager.api(f"originate {agent_destination} {call_uuid}")
     logger.info(f"TEMP >>>>>>>>>>>>>>>>>>================ {result}")
     if result.startswith("+OK"):
         logger.info(f"Successfully bridging {call_uuid} to Agent extension: {extension}")
@@ -405,6 +405,7 @@ def bridge_agent_to_call(call_uuid, agent_id):
     return False
 
 def connect_agent_to_call(agent_id, call_uuid):
+    logger.info(f"Connecting agent {agent_id} to call {call_uuid}")
     success = bridge_agent_to_call(call_uuid, agent_id)
     if success:
         mark_agent_busy_in_cache(agent_id, call_uuid)
