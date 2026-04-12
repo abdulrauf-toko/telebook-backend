@@ -219,7 +219,7 @@ def sync_to_db(self):
                 to_number=phone_number,
                 status=call_status,
                 disconnect_reason=disconnect_reason,
-                initiated_at=datetime.fromtimestamp(initiated_at) if initiated_at else None,
+                initiated_at=initiated_at,
                 answered_at=datetime.fromtimestamp(connected_at) if connected_at else None,
                 ended_at=datetime.fromtimestamp(ended_at) if ended_at else None,
                 duration_seconds=duration_seconds,
