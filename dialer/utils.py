@@ -157,7 +157,8 @@ def remove_agent_from_support_queue(agent_id):
         return False
 
 def get_agent_state(agent_id):
-    return conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+    state = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+    return json.loads(state) if state else {}
 
 def get_all_agent_states():
     return conn.get(AGENT_STATE_REDIS_KEY)

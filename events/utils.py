@@ -398,7 +398,6 @@ def bridge_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
     agent_destination = f"user/{extension}"
     result = fs_manager.api(f"originate {{origination_caller_id_number=2138722005,origination_caller_id_name=John}}{agent_destination} &bridge({call_uuid})")
-    logger.info(f"TEMP >>>>>>>>>>>>>>>>>>================ {result}")
     if result.startswith("+OK"):
         logger.info(f"Successfully bridging {call_uuid} to Agent extension: {extension}")
         return True
