@@ -457,7 +457,7 @@ def sync_to_db_wrapper():
 
 def call_ending_routine(call_details, event, direction):
     if call_details:
-        call_details["ended_at"] = event.headers.get("Caller-Channel-Hangup-Time")
+        call_details["ended_at"] = int(event.headers.get("Caller-Channel-Hangup-Time")) if event.headers.get("Caller-Channel-Hangup-Time") else int(time.time())
         call_details["disconnect_reason"] = event.headers.get("Hangup-Cause")
         call_details["duration_seconds"] = int(event.headers.get("variable_duration"))
         call_details['direction'] = direction
