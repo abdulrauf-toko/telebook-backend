@@ -71,6 +71,7 @@ def dispatch_event_handler(event) -> str:
         other_leg_uuid = event.headers.get("Other-Leg-Unique-ID", None)
         caller_id_number = event.headers.get("Caller-Caller-ID-Number", None) #NOT SURE IF THIS IS THE CORRECT ONE. CONFIRM LATER
         variable_uuid = event.headers.get("variable_uuid") #call_uuid
+        variable_call_id = event.headers.get("variable_sip_h_X-call_id", None) #our internal call id to track in cache and db
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
         
@@ -145,8 +146,8 @@ def dispatch_event_handler(event) -> str:
         
         elif event_type == 'CHANNEL_HANGUP_COMPLETE':
             hangup_cause = event.headers.get('variable_hangup_cause')
-            call_details = remove_active_call(variable_uuid)
-            logger.info(f"Call details for completed call: {variable_uuid}, {call_details}, headers: {event.headers}")
+            call_details = remove_active_call(variable_call_id)
+            logger.info(f"Call details for completed call: {variable_call_id}, {call_details}, headers: {event.headers}")
             if not agent_id:
                 agent_id = call_details.get('agent_id', None) if call_details else None
             

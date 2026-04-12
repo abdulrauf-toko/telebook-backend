@@ -450,7 +450,7 @@ def originate_call(
             job_uuid = job_response.split(" ")[-1]
             
             logger.info(f"Call initiated. Tracking Job: {job_uuid}")
-            return True, job_uuid
+            return True, call_uuid
         else:
             logger.error("Failed to start call")
             return False, None
