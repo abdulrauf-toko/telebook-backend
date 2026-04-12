@@ -354,7 +354,7 @@ def bridge_call(agent_id, event_obj):
             logger.error(f"No channel UUID found in event for agent {agent_id}")
             return None
         
-        success = bridge_agent_to_call(call_uuid, agent_id)
+        success = transfer_agent_to_call(call_uuid, agent_id)
         if not success:
             raise Exception(f'get_body didnt return with +OK') #TODO simplify/remove this in prod
         
@@ -394,23 +394,23 @@ def bridge_call(agent_id, event_obj):
         return None
 
 
-def bridge_agent_to_call(call_uuid, agent_id):
+def transfer_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
-    agent_destination = f"user/{extension}"
-    result = fs_manager.api(f"originate {{origination_caller_id_number=2138722005,origination_caller_id_name=John}}{agent_destination} &bridge({call_uuid})")
+    # agent_destination = f"user/{extension}"
+    result = fs_manager.api(f"uuid_transfer {call_uuid} {extension}")
     if result.startswith("+OK"):
-        logger.info(f"Successfully bridging {call_uuid} to Agent extension: {extension}")
+        logger.info(f"Successfully Transfering {call_uuid} to Agent extension: {extension}")
         return True
     return False
 
 def connect_agent_to_call(agent_id, call_uuid):
     logger.info(f"Connecting agent {agent_id} to call {call_uuid}")
-    success = bridge_agent_to_call(call_uuid, agent_id)
+    success = transfer_agent_to_call(call_uuid, agent_id)
     if success:
         mark_agent_busy_in_cache(agent_id, call_uuid)
         update_active_call_in_cache(call_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 
     else:
-        logger.error(f"Failed to bridge call {call_uuid} to agent {agent_id}")
+        logger.error(f"Failed to transfer call {call_uuid} to agent {agent_id}")
         disconnect_call(call_uuid, cause="LOSE_RACE")
 
 def disconnect_call(call_uuid, cause="NORMAL_CLEARING"):

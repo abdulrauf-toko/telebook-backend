@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
 from voice_orchestrator.redis import SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from .utils import connect_agent_to_call, disconnect_call, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, bridge_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
+from .utils import connect_agent_to_call, disconnect_call, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
 logger = logging.getLogger('events')
 
