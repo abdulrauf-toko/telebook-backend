@@ -1,6 +1,7 @@
 import orjson as json
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import logging
+from datetime import datetime
 import time
 from voice_orchestrator.freeswitch import fs_manager
 from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_to_queue, get_agent_extension, get_agent_team, add_sales_agent_to_queue, add_support_agent_to_queue
@@ -504,3 +505,13 @@ def get_next_customer_waiting_in_queue(team: str) -> str:
     except Exception as e:
         logger.error(f"Error retrieving next waiting customer: {e}")
         return None
+    
+def fs_timestamp_to_datetime(ts):
+    if not ts:
+        return None
+    ts = int(ts)
+    if ts > 1e15:        # microseconds (16 digits)
+        ts = ts / 1_000_000
+    elif ts > 1e12:      # milliseconds (13 digits)
+        ts = ts / 1_000
+    return datetime.fromtimestamp(ts)
