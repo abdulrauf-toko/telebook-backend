@@ -209,7 +209,7 @@ def sync_to_db(self):
             direction = call_details.get('direction')
 
             agent_id = call_details.get('agent_id', None)
-            phone_number = call_details.get('to_number', None)
+            phone_number = call_details.get('phone_number')
             call_status = map_call_status(disconnect_reason)
             call_uuid = call_details.get('call_uuid')
 
