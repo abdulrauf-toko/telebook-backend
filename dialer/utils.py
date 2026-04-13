@@ -17,12 +17,12 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 def get_priority_queue_mapping():
-    raw_data = conn.get(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY)
+    raw_data = conn.hgetall(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY)
     if not raw_data:
         return {}
 
     try:
-        return json.loads(raw_data)  # returns list of dicts
+        return {k: json.loads(v) for k, v in raw_data.items()}
     except json.JSONDecodeError:
         logger.error("Failed to decode PRIORITY_NUMBERS_TO_CALL_REDIS_KEY")
         return {}
@@ -37,12 +37,16 @@ def add_to_priority_queue_mapping(agent_id, entry):
     try:
         if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
             queue_mapping = get_priority_queue_mapping()
-            if agent_id in queue_mapping:
-                queue_mapping[str(agent_id)].append(entry)
+            agent_id_str = str(agent_id)
+            
+            if agent_id_str in queue_mapping:
+                queue_mapping[agent_id_str].append(entry)
             else:
-                queue_mapping[str(agent_id)] = [entry]
-                
-            conn.set(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, json.dumps(queue_mapping))
+                queue_mapping[agent_id_str] = [entry]
+            
+            # Store using HSET
+            for aid, queue in queue_mapping.items():
+                conn.hset(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, aid, json.dumps(queue))
             
         else:
             logger.error("Could not acquire lock for priority queue")

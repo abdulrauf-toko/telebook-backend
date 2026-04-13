@@ -166,12 +166,11 @@ def process_priority_queue() -> int:
                 total_calls_dialed += calls_dialed
                 priority_queue_mapping[agent_id] = leads_left
                 
-            data_to_store = {
+            # Update priority queue in cache using HSET
+            conn.hset(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, mapping={
                 agent_id: json.dumps(leads_list) 
                 for agent_id, leads_list in priority_queue_mapping.items()
-            }
-            # Update priority queue in cache
-            conn.set(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, json.dumps(data_to_store))
+            })
 
             logger.info(f"Priority queue: {total_calls_dialed} calls dialed")
             return total_calls_dialed
