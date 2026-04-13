@@ -142,6 +142,7 @@ def dispatch_event_handler(event) -> str:
         
         elif event_type == 'CHANNEL_HANGUP_COMPLETE':
             hangup_cause = event.headers.get('variable_hangup_cause')
+            logger.info(f"Call ended with hangup cause: {hangup_cause}")
             call_details = remove_active_call(variable_call_id)
             # logger.info(f"Call details for completed call: {variable_call_id}, {call_details}, headers: {event.headers}")
             if not agent_id:
