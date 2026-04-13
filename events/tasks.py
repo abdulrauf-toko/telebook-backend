@@ -92,7 +92,8 @@ def dispatch_event_handler(event) -> str:
                                 connect_agent_to_call(agent_id, variable_uuid)
                             else:
                                 disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
-                                
+                    else:
+                        connect_agent_to_call(agent_id, variable_uuid)
                 else:
                     update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
             else:
