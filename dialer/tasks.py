@@ -171,7 +171,7 @@ def process_priority_queue() -> int:
                 for agent_id, leads_list in priority_queue_mapping.items()
             }
             # Update priority queue in cache
-            conn.set(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, mapping=data_to_store)
+            conn.set(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, json.dumps(data_to_store))
 
             logger.info(f"Priority queue: {total_calls_dialed} calls dialed")
             return total_calls_dialed
