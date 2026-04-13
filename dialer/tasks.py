@@ -178,7 +178,7 @@ def process_priority_queue() -> int:
         
     except Exception as exc:
         logger.exception(f"Error processing priority queue: {exc}")
-        return calls_dialed
+        return total_calls_dialed
     finally:
         if queue_lock.owned():
             queue_lock.release()
