@@ -83,7 +83,7 @@ def dispatch_event_handler(event) -> str:
                             if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
                                 connect_agent_to_call(agent_id, variable_uuid)
                             else: #if not idle, disconnect call and add lead back to queue
-                                disconnect_call(variable_uuid, cause="AGENT_BUSY")
+                                disconnect_call(variable_uuid, cause="USER_BUSY")
                         else: #aquisition calls with no agents
                             agent_id = get_next_available_sales_agent()
                             if not agent_id:
