@@ -148,7 +148,7 @@ def dispatch_event_handler(event) -> str:
             if not agent_id:
                 agent_id = call_details.get('agent_id', None) if call_details else None
             
-            if hangup_cause in ['NO_AVAILABLE_AGENT', 'AGENT_BUSY', 'LOSE_RACE']:
+            if hangup_cause in ['NO_AVAILABLE_AGENT', 'AGENT_BUSY', 'LOSE_RACE', 'USER_NOT_REGISTERED']:
                 if call_details and call_details.get('payload', None):
                     add_to_priority_queue_mapping(agent_id, call_details)
 

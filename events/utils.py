@@ -25,6 +25,7 @@ FS_TO_DJANGO_STATUS = {
     'RECOVERY_ON_TIMER': 'failed',
     'ORIGINATOR_CANCEL': 'cancelled',
     'LOSE_RACE': 'failed',
+    'USER_NOT_REGISTERED': 'failed',
     
     # Invalid Number
     'UNALLOCATED_NUMBER': 'invalid',
@@ -445,7 +446,7 @@ def handle_free_agent(agent_id):
 
 
 def map_call_status(hangup_cause):
-    return FS_TO_DJANGO_STATUS.get(hangup_cause, hangup_cause)
+    return FS_TO_DJANGO_STATUS.get(hangup_cause)
 
 def sync_to_db_wrapper():
     from events.tasks import sync_to_db
