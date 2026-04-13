@@ -568,6 +568,14 @@ def validate_and_cleanup_agent_states():
                         )
                         handle_free_agent(agent_id)
                         cleanup_count += 1
+                    elif call_initiated_at and current_time - call_initiated_at > AVERAGE_CALL_DURATION * 2: #if call has been active for more than 3 times the average duration, consider it orphaned
+                        logger.warning(
+                            f"Agent {agent_id} has a long-running call {current_call_id} "
+                            f"(initiated_at: {call_initiated_at}). Marking agent idle."
+                        )
+                        handle_free_agent(agent_id)
+                        cleanup_count += 1
+
                 
                 # Case 2: Agent has no call_id but initiated_at is over 90 seconds ago
                 elif call_initiated_at is not None and current_time - call_initiated_at > 90:
