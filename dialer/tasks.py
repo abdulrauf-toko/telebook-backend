@@ -60,10 +60,10 @@ def initiate_dialer_cycle(self):
         logger.info(f"Effective agent capacity: {agent_capacity}")
         
         # Step 2: Process priority queue
-        priority_dialed = process_priority_queue()
+        # priority_dialed = process_priority_queue()
         # agent_capacity -= priority_dialed
         
-        logger.info(f"Priority queue processed: {priority_dialed} calls") 
+        # logger.info(f"Priority queue processed: {priority_dialed} calls") 
         
         # Step 3: Process secondary queue (predictive dialing)
         secondary_dialed = process_secondary_queue()
@@ -83,7 +83,7 @@ def initiate_dialer_cycle(self):
             'timestamp': cycle_start.isoformat(),
             'duration_seconds': cycle_duration,
             'agent_capacity': agent_capacity,
-            'priority_calls_dialed': priority_dialed,
+            # 'priority_calls_dialed': priority_dialed,
             'secondary_calls_dialed': secondary_dialed,
             'total_calls_dialed': total_calls_dialed
         }

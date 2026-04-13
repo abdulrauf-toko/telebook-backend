@@ -485,13 +485,13 @@ def build_originate_command(
             application = '&park' 
             payload['originate_timeout'] = ORIGINATE_TIMEOUT #disconnect after x seconds if fails to bridge #TODO FIGURE OUT WHICH LEG IT SHOULD BE
         else:
-            application = "&park"
+            application = "&bridge"
 
         bridge_to_string = ""
-        # if auto_bridge:
-        #     agent_extension = get_agent_extension(agent_id)
-        #     bridge_to_string = f"(user/{agent_extension})"
-        #     payload['auto_bridge'] = "true"
+        if auto_bridge:
+            agent_extension = get_agent_extension(agent_id)
+            bridge_to_string = f"(user/{agent_extension})"
+            payload['auto_bridge'] = "true"
 
         var_string = ','.join([f"sip_h_X-{k}='{v}'" for k, v in payload.items()])
 
