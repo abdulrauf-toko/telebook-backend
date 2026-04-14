@@ -192,8 +192,9 @@ def dispatch_event_handler(event) -> str:
             logger.exception(f"Error processing event {event_type}: {exc}")
         finally:            
             if agent_id:
-                if agent_lock.locked():
-                    agent_lock.release()
+                if agent_lock:
+                    if agent_lock.locked():
+                        agent_lock.release()
             
     except Exception as exc:
         logger.exception(f"Error dispatching event handler: {exc}")
