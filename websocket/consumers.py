@@ -11,11 +11,11 @@ class AgentConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.agent_id = self.scope['url_route']['kwargs']['agent_id']
-        user = await get_user(self.agent_id)
+        user, group = await get_user(self.agent_id)
 
         await self.channel_layer.group_add(f"agent_{self.agent_id}", self.channel_name)
         # Register into group
-        await self.channel_layer.group_add(f"groups_{user.groups.first().name}", self.channel_name)
+        await self.channel_layer.group_add(f"groups_{group}", self.channel_name)
         await self.accept()
         logger.info(f"Agent {self.agent_id} connected")
 
@@ -29,7 +29,10 @@ class AgentConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps(event))
 
 from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
 
 @sync_to_async
 def get_user(agent_id):
-    return User.objects.prefetch_related('groups').get(agent__id=agent_id)
+    user = User.objects.get(agent__id=agent_id)
+    group = user.groups.first().name
+    return user, group
