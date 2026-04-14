@@ -2,8 +2,7 @@
 import json
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
-from gunicorn.config import User
-
+from django.contrib.auth.models import User
 from dialer.models import Agent
 
 logger = logging.getLogger(__name__)
