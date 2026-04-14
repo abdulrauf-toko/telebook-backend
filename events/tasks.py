@@ -70,6 +70,7 @@ def dispatch_event_handler(event) -> str:
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
         logger.info(f"Event details: event_type={event_type}, direction={direction}, other_leg_uuid={other_leg_uuid}, caller_id_number={caller_id_number}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, auto_bridge={auto_bridge}, agent_id={agent_id}")
+        agent_lock = None
         if agent_id:
             lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
             agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
