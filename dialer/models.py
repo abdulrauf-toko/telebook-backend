@@ -264,6 +264,7 @@ class Campaign(models.Model):
             ('active_churn', 'Active Churn'),
             ('growth_churn', 'Growth Churn'),
             ('acquisition', 'Acquisition'),
+            ('other', 'Other'),
         ],
         db_index=True,
         help_text="Lead segment classification"

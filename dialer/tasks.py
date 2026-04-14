@@ -411,7 +411,8 @@ def refill_queue(self):
             When(segment='active_churn', then=3),
             When(segment='growth_churn', then=4),
             When(segment='acquisition', then=5),
-            default=6,
+            When(segment='other', then=6),
+            default=7,
             output_field=IntegerField(),
         )
         active_campaigns = (
@@ -493,36 +494,6 @@ def refill_queue(self):
     except Exception as exc:
         logger.exception(f"Error refilling priority queue: {exc}")
 
-
-# ============================================================================
-# PERIODIC TASK SCHEDULER
-# ============================================================================
-
-# @shared_task(queue='dialer_queue', bind=True)
-# def schedule_next_dialer_cycle(self):
-#     """
-#     Schedule next dialer cycle execution.
-    
-#     This task is called at the end of each dialer cycle to
-#     schedule the next execution with a configured interval.
-    
-#     Default interval: PERIODIC_TRIGGER_INTERVAL (5 seconds)
-#     """
-#     try:
-#         # Schedule next cycle
-#         self.apply_async(
-#             queue='dialer_queue',
-#             countdown=PERIODIC_TRIGGER_INTERVAL
-#         )
-#         return {'status': 'scheduled', 'next_in_seconds': PERIODIC_TRIGGER_INTERVAL}
-#     except Exception as exc:
-#         logger.exception(f"Error scheduling next cycle: {exc}")
-#         return {'status': 'error', 'error': str(exc)}
-
-
-# ============================================================================
-# AGENT LIST MANAGEMENT
-# ============================================================================
 
 def add_agent_to_set(agent_id):
     
