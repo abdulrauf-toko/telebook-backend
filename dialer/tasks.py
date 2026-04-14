@@ -310,7 +310,6 @@ def process_aquisition_queue() -> int:
                 logger.info("Secondary queue is empty")
                 return 0
 
-            logger.info(f'secondary_queue: {secondary_queue}')
             # # Get pickup ratio (can be per-campaign or global)
             pickup_ratio = DEFAULT_PICKUP_RATIO
             dial_multiplier = max(1, int(1 / pickup_ratio))  # floor(1/y)
