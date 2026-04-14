@@ -70,8 +70,8 @@ def initiate_dialer_cycle(self):
         secondary_dialed = process_secondary_queue()
         logger.info(f"Secondary queue processed: {secondary_dialed} calls")
         
-        # aquisition_dialed = process_aquisition_queue()
-        # logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
+        aquisition_dialed = process_aquisition_queue()
+        logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
 
         # Step 4: Check and refill queues if needed
         check_and_refill_queue()
@@ -425,18 +425,26 @@ def refill_queue(self):
 
         new_queue = defaultdict(list)
         lead_ids = set()
+        agent_ids = set()  # Track agents for whom we're adding leads to the queue
 
         for active_campaign in active_campaigns:
             added = False
             campaign_leads = []
             leads = active_campaign.leads.filter(status='pending')
+            count = 0
+            agent_id = active_campaign.agent.id if active_campaign.agent else 0
+            agent_id = str(agent_id)  # Redis keys must be strings
+    
+            if agent_id not in agent_ids:
+                agent_ids.add(agent_id) 
+            else:
+                continue #skip if we've already added leads for this agent in this refill cycle
+
             for lead in leads:
                 lead_ids.add(lead.id)
                 queue_object = construct_queue_object(active_campaign, lead)
                 campaign_leads.append(queue_object)
-
-                agent_id = active_campaign.agent.id if active_campaign.agent else 0
-                agent_id = str(agent_id)  # Redis keys must be strings
+                count += 1
 
                 # acquisition → default queue
                 if active_campaign.segment == "acquisition":
@@ -446,6 +454,9 @@ def refill_queue(self):
                         added = True
                 else:
                     new_queue[agent_id].append(queue_object)
+
+                if count >= 50:
+                    break  # Limit to 50 leads per campaign to prevent overloading queue
 
         updated = Lead.objects.filter(
             id__in=lead_ids,
