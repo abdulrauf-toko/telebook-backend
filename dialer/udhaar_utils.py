@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 def store_campaigns_from_df(df):
     # Group by agent + segment → one campaign per group
-    grouped = df.groupby(["agent__telecard_username", "segment"])
+    grouped = df.groupby(["agent__telecard_username", "customer__segment"])
 
     for (agent_username, segment), group_df in grouped:
         # Get or skip agent

@@ -1,13 +1,13 @@
 
 import orjson as json
 import logging
-from voice_orchestrator.redis import conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY
+from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, conn, AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, AQUISITION_AGENTS_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY
 from django.utils import timezone
 from voice_orchestrator.celery import app
 import time
-from .utils import get_all_idle_sales_agents, get_all_active_sales_calls, get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, make_outbound_call_helper_aquisition
+from .utils import get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, make_outbound_call_helper_aquisition
 from collections import defaultdict
-from .models import Agent, CallLog, Lead, Campaign
+from .models import Lead, Campaign
 from django.db.models import Case, When, IntegerField
 from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
 from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent
@@ -16,6 +16,7 @@ import requests
 import pandas as pd
 from io import StringIO
 from django.conf import settings
+from websocket.utils import push_agent_event
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,8 @@ def initiate_dialer_cycle(self):
         logger.info(f"Effective agent capacity: {agent_capacity}")
         
         # Step 2: Process priority queue
-        # priority_dialed = process_priority_queue()
-        # agent_capacity -= priority_dialed
+        priority_dialed = process_priority_queue()
+        agent_capacity -= priority_dialed
         
         # logger.info(f"Priority queue processed: {priority_dialed} calls") 
         
@@ -69,8 +70,8 @@ def initiate_dialer_cycle(self):
         secondary_dialed = process_secondary_queue()
         logger.info(f"Secondary queue processed: {secondary_dialed} calls")
         
-        aquisition_dialed = process_aquisition_queue()
-        logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
+        # aquisition_dialed = process_aquisition_queue()
+        # logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
 
         # Step 4: Check and refill queues if needed
         check_and_refill_queue()
@@ -152,20 +153,38 @@ def process_priority_queue() -> int:
                 if not leads: #list empty
                     continue 
                 
-                if not is_agent_idle_in_cache(agent_id=agent_id, check_call_id=True, check_state=True):
-                    logger.info(f"Agent {agent_id} is not idle, skipping")
-                    continue
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
 
-                # Originate call
-                calls_dialed, leads_left = make_outbound_call_helper(
-                    agent_id=agent_id,
-                    leads=leads,
-                    calls_to_make=1 #one to one mapping for priority queue
-                )
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
 
-                total_calls_dialed += calls_dialed
-                priority_queue_mapping[agent_id] = leads_left
-                
+                        if not is_agent_idle_in_cache(agent_id=agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"Agent {agent_id} is not idle, skipping")
+                            continue
+                        
+                        # Originate call
+                        calls_dialed, leads_left = make_outbound_call_helper(
+                            agent_id=agent_id,
+                            leads=leads,
+                            calls_to_make=1 #one to one mapping for priority queue
+                        )
+
+                        total_calls_dialed += calls_dialed
+                        priority_queue_mapping[agent_id] = leads_left
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+            
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+            
+                finally:
+                    if agent_lock.owned():
+                        agent_lock.release()
+
             # Update priority queue in cache using HSET
             conn.hset(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, mapping={
                 agent_id: json.dumps(leads_list) 
@@ -226,13 +245,31 @@ def process_secondary_queue() -> int:
                 if agent_id == '0':
                     continue #handle acquisition leads later on
 
-                if not is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
-                    logger.info(f"no available agent found for agent_id {agent_id}, skipping predictive dial")
-                    continue
-                
-                calls_dialed, leads_left = make_outbound_call_helper(agent_id, leads, calls_to_make=dial_multiplier)
-                total_calls_dialed += calls_dialed
-                secondary_queue[agent_id] = leads_left
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                        if not is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"no available agent found for agent_id {agent_id}, skipping predictive dial")
+                            continue
+                        
+                        calls_dialed, leads_left = make_outbound_call_helper(agent_id, leads, calls_to_make=dial_multiplier)
+                        total_calls_dialed += calls_dialed
+                        secondary_queue[agent_id] = leads_left
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+            
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+            
+                finally:
+                    if agent_lock.owned():
+                        agent_lock.release()
                 
             data_to_store = {
                 agent_id: json.dumps(leads_list) 
@@ -256,14 +293,6 @@ def process_secondary_queue() -> int:
 def process_aquisition_queue() -> int:
 
     aquisition_agents = get_aquisition_set()
-    available_agents = []
-    for agent_id in aquisition_agents:
-        if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
-            available_agents.append(agent_id)
-            
-    if not available_agents:
-        logger.info("No available agents for acquisition queue")
-        return 0
     
     total_calls_dialed = 0
     lock_key = f"{AGENT_LEAD_MAPPING_REDIS_KEY}:lock"
@@ -297,9 +326,29 @@ def process_aquisition_queue() -> int:
                 logger.info("No leads in acquisition queue")
                 return 0
                 
-            for agent_id in available_agents:
-                calls_dialed, leads = make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=dial_multiplier)
-                total_calls_dialed += calls_dialed
+            for agent_id in aquisition_agents:
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                        if not is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"no available agent found for agent_id {agent_id}, skipping acquisition dial")
+                            continue
+                    
+                        calls_dialed, leads = make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=dial_multiplier)
+                        total_calls_dialed += calls_dialed
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+                finally:                    
+                    if agent_lock.owned():
+                        agent_lock.release()
                 
             secondary_queue["0"] = leads
 

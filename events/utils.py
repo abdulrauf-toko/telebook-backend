@@ -77,126 +77,88 @@ def mark_agent_logged_in_cache(agent_id, team):
             agent_lock.release()
 
 def mark_agent_idle_in_cache(agent_id): #changes both state and adds to queue.
-    lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
     
-    # timeout=5: If the process crashes, the lock dies in 3 seconds
-    # sleep=0.05: If locked, wait 50ms before trying again
-    agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
-
     try:
-        if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
-            raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-            if not raw_data: #AGENT logged out before call end event
-                return None
-            
-            agent_data = json.loads(raw_data)
-            if agent_data.get('team') == 'sales':
-                queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-            elif agent_data.get('team') == 'secondary_sales':
-                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-            else:
-                queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-            agent_data.update({"state": "idle", "current_call_id": None, 'call_initiated_at': None})
-
-            #Pipe ensures both updates is done via a single round-trip. Better for performance
-            with conn.pipeline() as pipe:
-                pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-                pipe.zadd(queue_key, {agent_id: time.time()}) #scored set. guarantees deduplication, and removes the the agent in front of the queue
-                pipe.execute()
-            return agent_data
-
-        else:
-            logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+        raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+        if not raw_data: #AGENT logged out before call end event
             return None
+        
+        agent_data = json.loads(raw_data)
+        if agent_data.get('team') == 'sales':
+            queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+        elif agent_data.get('team') == 'secondary_sales':
+            queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
+        else:
+            queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
+        agent_data.update({"state": "idle", "current_call_id": None, 'call_initiated_at': None})
+        #Pipe ensures both updates is done via a single round-trip. Better for performance
+        with conn.pipeline() as pipe:
+            pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
+            pipe.zadd(queue_key, {agent_id: time.time()}) #scored set. guarantees deduplication, and removes the the agent in front of the queue
+            pipe.execute()
+        return agent_data
             
     except Exception as e:
         logger.error(f"Error updating agent {agent_id}: {e}")
         return None
-    finally:
-        if agent_lock.owned():
-            agent_lock.release()
 
 def mark_agent_busy_in_cache(agent_id, call_id, remove_from_queue=True):
-    lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
-    agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
-
     try:
-        if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
-            raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-            if not raw_data:
-                return None #AGENT LOGGED OUT WHILE BRIDGING
-            
-            agent_data = json.loads(raw_data)
-            # Update agent state
-            agent_data.update({
-                "state": "busy",
-                "current_call_id": call_id,
-                "call_initiated_at": time.time()
-            })
+        raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+        if not raw_data:
+            return None #AGENT LOGGED OUT WHILE BRIDGING
+        
+        agent_data = json.loads(raw_data)
+        # Update agent state
+        agent_data.update({
+            "state": "busy",
+            "current_call_id": call_id,
+            "call_initiated_at": time.time()
+        })
 
-            if agent_data.get('team') == 'sales':
-                queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-            elif agent_data.get('team') == 'secondary_sales':
-                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-            else:
-                queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-
-            with conn.pipeline() as pipe:
-                pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-                if remove_from_queue:
-                    pipe.zrem(queue_key, agent_id)  # remove from idle queue
-                pipe.execute()
-
-            return True
+        if agent_data.get('team') == 'sales':
+            queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+        elif agent_data.get('team') == 'secondary_sales':
+            queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
         else:
-            logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
-            return None
+            queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
 
+        with conn.pipeline() as pipe:
+            pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
+            if remove_from_queue:
+                pipe.zrem(queue_key, agent_id)  # remove from idle queue
+            pipe.execute()
+        return True
     except Exception as e:
-        logger.error(f"Error marking agent {agent_id} busy: {e}")
-        return None
-
-    finally:
-        if agent_lock.owned():
-            agent_lock.release()
-
+        logger.error(f"Error marking agent {agent_id} as busy: {e}")
+        return False
 
 def is_agent_idle_in_cache(agent_id, check_call_id=False, check_state=True):
     if agent_id == "0":
         return True
     
-    lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
-    agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
-
     try:
-        if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
-            raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-            if not raw_data:
-                logger.warning(f"Agent {agent_id} not found in cache when checking idle state")
-                return False  # Agent not found or logged out
+        raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+        if not raw_data:
+            logger.warning(f"Agent {agent_id} not found in cache when checking idle state")
+            return False  # Agent not found or logged out
+        
+        agent_data = json.loads(raw_data)
+        agent_state = agent_data.get("state")
+        current_call_id = agent_data.get("current_call_id")
 
-            agent_data = json.loads(raw_data)
-            agent_state = agent_data.get("state")
-            current_call_id = agent_data.get("current_call_id")
-
-            if check_state:
-                if agent_state != "idle":
-                    return False
-            if check_call_id:
-                if current_call_id is not None:
-                    return False
-            return True
-        else:
-            logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
-            return False
-
+        if check_state:
+            if agent_state != "idle":
+                return False
+            
+        if check_call_id:
+            if current_call_id is not None:
+                return False
+        return True
+        
     except Exception as e:
         logger.error(f"Error checking idle state for agent {agent_id}: {e}")
         return False
-
-    finally:
-        if agent_lock.owned():
-            agent_lock.release()
 
 def get_all_idle_agents_in_cache(check_call_id=False, check_state=True):
     try:
@@ -221,82 +183,73 @@ def get_all_idle_agents_in_cache(check_call_id=False, check_state=True):
         return []       
 
 def remove_agent_from_cache(agent_id):
-    lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
-    agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
-
-    try:
-        if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
-            raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-            if not raw_data:
-                return None #AGENT LOGGED OUT 
-            
-            agent_data = json.loads(raw_data)
-            if agent_data.get('team') == 'sales':
-                queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-            elif agent_data.get('team') == 'secondary_sales':
-                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-            else:
-                queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-
-            with conn.pipeline() as pipe:
-                pipe.hdel(AGENT_STATE_REDIS_KEY, agent_id)
-                pipe.zrem(queue_key, agent_id)  # remove from idle queue if present
-                pipe.execute()
-            return True
-        else:
-            logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
-            return None
-    except Exception as e:
-        logger.error(f"Error removing agent {agent_id} from cache: {e}")
-        return None
-    finally:
-        if agent_lock.owned():
-            agent_lock.release()
+    
+    raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+    if not raw_data:
+        return None #AGENT LOGGED OUT 
+    
+    agent_data = json.loads(raw_data)
+    if agent_data.get('team') == 'sales':
+        queue_key = SALES_AGENT_QUEUE_REDIS_KEY
+    elif agent_data.get('team') == 'secondary_sales':
+        queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
+    else:
+        queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
+    with conn.pipeline() as pipe:
+        pipe.hdel(AGENT_STATE_REDIS_KEY, agent_id)
+        pipe.zrem(queue_key, agent_id)  # remove from idle queue if present
+        pipe.execute()
+    return True
 
 
 def logout_agent(agent_id) -> bool:
     """
     Logout an agent and disconnect all active calls associated with them.
     """
+    lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+    agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
     try:
-        # Get agent data before removing
-        raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-        if not raw_data:
-            logger.warning(f"Agent {agent_id} not found in cache")
-            return False
-        
-        agent_data = json.loads(raw_data)
-        removal_result = remove_agent_from_cache(agent_id)
-        current_call_id = agent_data.get("current_call_id")
-        
-        # Disconnect the current call if agent is on a call
-        if current_call_id:
-            disconnect_call(current_call_id, cause="AGENT_LOGOUT")
-            logger.info(f"Disconnected call {current_call_id} for agent {agent_id} logout")
-        
-        # Remove agent from cache (state and queue)
-        raw_data = conn.hget(ACTIVE_CALLS_REDIS_KEY, agent_id)
-        if raw_data:
-            calls = json.loads(raw_data)
-            for call_uid, details in calls.items():
-                agent_id = details.get('agent_id', None)
-                if agent_id:
-                    disconnect_call(call_uid)
-        
-        if removal_result:
-            logger.info(f"Agent {agent_id} successfully logged out")
-            return True
+        if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+            # Get agent data before removing
+            raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
+            if not raw_data:
+                logger.warning(f"Agent {agent_id} not found in cache")
+                return False
+
+            agent_data = json.loads(raw_data)
+            removal_result = remove_agent_from_cache(agent_id)
+            current_call_id = agent_data.get("current_call_id")
+
+            # Disconnect the current call if agent is on a call
+            if current_call_id:
+                disconnect_call(current_call_id, cause="AGENT_LOGOUT")
+                logger.info(f"Disconnected call {current_call_id} for agent {agent_id} logout")
+
+            # Remove agent from cache (state and queue)
+            raw_data = conn.hget(ACTIVE_CALLS_REDIS_KEY, agent_id)
+            if raw_data:
+                calls = json.loads(raw_data)
+                for call_uid, details in calls.items():
+                    agent_id = details.get('agent_id', None)
+                    if agent_id:
+                        disconnect_call(call_uid)
+
+            if removal_result:
+                logger.info(f"Agent {agent_id} successfully logged out")
+                return True
+            else:
+                logger.error(f"Failed to remove agent {agent_id} from cache during logout")
+                return False
         else:
-            logger.error(f"Failed to remove agent {agent_id} from cache during logout")
+            logger.error(f"Could not acquire lock for agent {agent_id} during logout - System Busy")
             return False
             
     except Exception as e:
         logger.exception(f"Error during agent logout for {agent_id}: {e}")
         return False
     
-    
-
-
     
 def add_active_call_in_cache(call_id, details):
     conn.hset(ACTIVE_CALLS_REDIS_KEY, call_id, json.dumps(details))
@@ -398,19 +351,18 @@ def bridge_call(agent_id, event_obj):
 
 def transfer_agent_to_call(call_uuid, agent_id):
     extension = get_agent_extension(agent_id)
-    # agent_destination = f"user/{extension}"
     result = fs_manager.api(f"uuid_transfer {call_uuid} {extension}")
     if result.startswith("+OK"):
         logger.info(f"Successfully Transfering {call_uuid} to Agent extension: {extension}")
         return True
     return False
 
-def connect_agent_to_call(agent_id, call_uuid):
+def connect_agent_to_call(agent_id, call_uuid, custom_uuid):
     logger.info(f"Connecting agent {agent_id} to call {call_uuid}")
     success = transfer_agent_to_call(call_uuid, agent_id)
     if success:
-        mark_agent_busy_in_cache(agent_id, call_uuid)
-        update_active_call_in_cache(call_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 
+        mark_agent_busy_in_cache(agent_id, custom_uuid)
+        update_active_call_in_cache(custom_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 
     else:
         logger.error(f"Failed to transfer call {call_uuid} to agent {agent_id}")
         disconnect_call(call_uuid, cause="LOSE_RACE")

@@ -33,21 +33,18 @@ def agent_login(request):
             password = data.get('password')
         except Exception as e:
             return JsonResponse({'error': 'Invalid JSON'}, status=400)
-
+        
         user = authenticate(request, username=username, password=password)
         if user is not None:
             try:
                 login(request, user)
                 agent = Agent.objects.get(user=user)
+                
                 group = user.groups.first()
                 team = group.name
                 mark_agent_logged_in_cache(str(agent.id), team)
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
-                all_agents.append({
-                    "user__username": 'yellow',
-                    "extension": '1004'
-                })
                 
                 return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents)})
             except Agent.DoesNotExist:

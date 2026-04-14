@@ -11,21 +11,16 @@ from voice_orchestrator.celery import app
 from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
-from voice_orchestrator.redis import SYNC_TO_DB_LOCK_REDIS_KEY, conn
+from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
 from .utils import connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
-logger = logging.getLogger('events')
+from websocket.utils import push_agent_event
 
 # ============================================================================
 # MAIN EVENT PROCESSING ENTRY POINT
 # ============================================================================
 
-import logging
 import time
-import redis
-
-from celery import shared_task
-from greenswitch import InboundESL
 
 logger = logging.getLogger(__name__)
 
@@ -74,101 +69,130 @@ def dispatch_event_handler(event) -> str:
         variable_call_id = event.headers.get("variable_sip_h_X-call_id", None) #our internal call id to track in cache and db
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
-        
-        if event_type == 'CHANNEL_ANSWER':
-            if direction == 'outbound':
-                if not other_leg_uuid: #first answer
-                    if not auto_bridge: #lead picked up first
-                        if agent_id: #if agent is assigned to this lead, check if idle and connect. all leads except aquisition 
-                            if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
-                                connect_agent_to_call(agent_id, variable_uuid)
-                            else: #if not idle, disconnect call and add lead back to queue
-                                disconnect_call(variable_uuid, cause="USER_BUSY")
-                        else: #aquisition calls with no agents
-                            agent_id = get_next_available_sales_agent()
-                            if not agent_id:
-                                agent_id = get_next_available_secondary_sales_agent()
-                            if agent_id:
-                                connect_agent_to_call(agent_id, variable_uuid)
-                            else:
-                                disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
-                    else:
-                        connect_agent_to_call(agent_id, variable_uuid)
-                else:
-                    update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
-            else:
-                # this case is for inbound pick ups. Since IVR is handled by freeswtich, we only connect the agent at park event 
-                # TODO This branch is also when a call is made from softphone dialer
-                # need to handle the case probably. 
+        logger.info(f"Event details: event_type={event_type}, direction={direction}, other_leg_uuid={other_leg_uuid}, caller_id_number={caller_id_number}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, auto_bridge={auto_bridge}, agent_id={agent_id}")
+        if agent_id:
+            lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+            agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+            if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
                 pass
-
-        elif event_type == 'CHANNEL_EXECUTE':
-            application = event.headers.get('Application')
-
-            if application == 'transfer':
-                uuid = event.headers.get('Unique-ID')
-                # The new destination Agent B
-                new_destination = event.headers.get('Application-Data') 
-                # The agent who did the transferring
-                transferor = event.headers.get('variable_last_sent_callee_id_number')
-                # Try these in order to find Agent A
-                # transferor = (
-                #     event.headers.get('variable_last_sent_callee_id_number') or 
-                #     event.headers.get('variable_caller_id_number') or 
-                #     event.headers.get('variable_origination_caller_id_number')
-                # )
-                mark_agent_idle_in_cache(transferor) 
-                mark_agent_busy_in_cache(new_destination)
-                #TODO transfer commands probably in case softphone isn't handling. 
-
-        elif event_type == 'CHANNEL_PARK':
-            if direction == 'inbound':
-                selection = event.headers.get('variable_ivr_choice')
-                uuid = event.headers.get('Unique-ID')
-                if selection == "1": #support
-                    agent_id = get_next_available_support_agent()
-                elif selection == "2": #sales
-                    agent_id = get_next_available_secondary_sales_agent()
+            else:
+                logger.error(f"Could not acquire lock for agent {agent_id} - Event Handler - System Busy")
+                return None
+        try:
+            if event_type == 'CHANNEL_ANSWER':
+                if direction == 'outbound':
+                    if not other_leg_uuid: #first answer
+                        if not auto_bridge: #lead picked up first
+                            if agent_id: #if agent is assigned to this lead, check if idle and connect. all leads except aquisition 
+                                if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
+                                    connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
+                                else: #if not idle, disconnect call and add lead back to queue
+                                    disconnect_call(variable_uuid, cause="USER_BUSY")
+                            else: #aquisition calls with no agents
+                                agent_id = get_next_available_sales_agent()
+                                if not agent_id:
+                                    agent_id = get_next_available_secondary_sales_agent()
+                                if agent_id:
+                                    connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
+                                else:
+                                    disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
+                        # else:
+                        #     connect_agent_to_call(agent_id, variable_uuid)
+                    else:
+                        update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
                 else:
-                    logger.error('invalid ivr choice')
+                    # this case is for inbound pick ups. Since IVR is handled by freeswtich, we only connect the agent at park event 
+                    # TODO This branch is also when a call is made from softphone dialer
+                    # need to handle the case probably. 
+                    pass
+
+            elif event_type == 'CHANNEL_EXECUTE':
+                application = event.headers.get('Application')
+
+                if application == 'transfer':
+                    uuid = event.headers.get('Unique-ID')
+                    # The new destination Agent B
+                    new_destination = event.headers.get('Application-Data') 
+                    # The agent who did the transferring
+                    transferor = event.headers.get('variable_last_sent_callee_id_number')
+                    # Try these in order to find Agent A
+                    # transferor = (
+                    #     event.headers.get('variable_last_sent_callee_id_number') or 
+                    #     event.headers.get('variable_caller_id_number') or 
+                    #     event.headers.get('variable_origination_caller_id_number')
+                    # )
+                    mark_agent_idle_in_cache(transferor) 
+                    mark_agent_busy_in_cache(new_destination)
+                    #TODO transfer commands probably in case softphone isn't handling. 
+
+            elif event_type == 'CHANNEL_PARK':
+                if direction == 'inbound':
+                    selection = event.headers.get('variable_ivr_choice')
+                    uuid = event.headers.get('Unique-ID')
+                    if selection == "1": #support
+                        agent_id = get_next_available_support_agent()
+                    elif selection == "2": #sales
+                        agent_id = get_next_available_secondary_sales_agent()
+                    else:
+                        logger.error('invalid ivr choice')
+                        return
+                    if agent_id:
+                        mark_agent_busy_in_cache(agent_id, uuid, variable_uuid)
+                        transfer_call(uuid, agent_id)
+                    else:
+                        team = 'support' if selection == '1' else 'secondary_sales'
+                        add_customer_to_waiting_queue(uuid, team)
+                        transfer_call(uuid, "waiting_room") #make sure this exists in freeswitch config 
+
+
+            elif event_type == 'CHANNEL_ORIGINATE':
+                # This event is used to track when the call is ringing. We can use this to update our cache and show ringing status in UI
+                if direction == 'outbound' and agent_id:
+                    push_agent_event(agent_id, 'ringing')
+
+
+            elif event_type == 'CHANNEL_HANGUP_COMPLETE':
+                hangup_cause = event.headers.get('variable_hangup_cause')
+                logger.info(f"Call ended with hangup cause: {hangup_cause}")
+                if not variable_call_id:
+                    logger.error("No call_id found in event headers. Cannot process hangup complete event properly.")
                     return
-                if agent_id:
-                    mark_agent_busy_in_cache(agent_id, uuid)
-                    transfer_call(uuid, agent_id)
-                else:
-                    team = 'support' if selection == '1' else 'secondary_sales'
-                    add_customer_to_waiting_queue(uuid, team)
-                    transfer_call(uuid, "waiting_room") #make sure this exists in freeswitch config 
-                    
-        
-        elif event_type == 'CHANNEL_HANGUP_COMPLETE':
-            hangup_cause = event.headers.get('variable_hangup_cause')
-            logger.info(f"Call ended with hangup cause: {hangup_cause}")
-            call_details = remove_active_call(variable_call_id)
-            # logger.info(f"Call details for completed call: {variable_call_id}, {call_details}, headers: {event.headers}")
-            if not agent_id:
-                agent_id = call_details.get('agent_id', None) if call_details else None
-            
-            if hangup_cause in ['NO_AVAILABLE_AGENT', 'USER_BUSY', 'LOSE_RACE', 'USER_NOT_REGISTERED']:
-                if call_details and call_details.get('payload', None):
-                    add_to_priority_queue_mapping(agent_id, call_details)
 
-            if hangup_cause in ['BLIND_TRANSFER', 'ATTENDED_TRANSFER', 'TRANSFER']:
-                transferor_ext = (
-                    event.headers.get('variable_user_name') or 
-                    event.headers.get('Caller-Caller-ID-Number') or 
-                    event.headers.get('variable_origination_caller_id_number')
-                )
-                # Mark the transferor agent as idle
-                #TODO probably handled in transfer
+                call_details = remove_active_call(variable_call_id)
+                # logger.info(f"Call details for completed call: {variable_call_id}, {call_details}, headers: {event.headers}")
+                if not agent_id:
+                    agent_id = call_details.get('agent_id', None) if call_details else None
 
-            if hangup_cause == 'NORMAL_CLEARING':
+                if hangup_cause in ['NO_AVAILABLE_AGENT', 'USER_BUSY', 'LOSE_RACE', 'USER_NOT_REGISTERED']:
+                    if call_details and call_details.get('payload', None):
+                        payload = call_details.get('payload')
+                        add_lead_back_to_queue(payload.get('lead_id'))
+
+                if hangup_cause in ['BLIND_TRANSFER', 'ATTENDED_TRANSFER', 'TRANSFER']:
+                    transferor_ext = (
+                        event.headers.get('variable_user_name') or 
+                        event.headers.get('Caller-Caller-ID-Number') or 
+                        event.headers.get('variable_origination_caller_id_number')
+                    )
+                    # Mark the transferor agent as idle
+                    #TODO probably handled in transfer
+
                 if agent_id:
-                    handle_free_agent(agent_id)
-            
-            call_ending_routine(call_details, event, direction)
-        else:
-            logger.debug(f"No specific handler for event type: {event_type}")
+                    push_agent_event(agent_id, 'call_ended', {"hangup_cause": hangup_cause})
+
+                if hangup_cause == 'NORMAL_CLEARING':
+                    if agent_id:
+                        handle_free_agent(agent_id)
+
+                call_ending_routine(call_details, event, direction)
+            else:
+                logger.debug(f"No specific handler for event type: {event_type}")
+        except Exception as exc:
+            logger.exception(f"Error processing event {event_type}: {exc}")
+        finally:            
+            if agent_id:
+                if agent_lock.locked():
+                    agent_lock.release()
             
     except Exception as exc:
         logger.exception(f"Error dispatching event handler: {exc}")
