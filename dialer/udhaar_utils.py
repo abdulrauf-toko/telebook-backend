@@ -53,3 +53,50 @@ def store_campaigns_from_df(df):
 
         Lead.objects.bulk_create(leads_to_create, ignore_conflicts=True)
         logger.info("Created {} leads for campaign {}".format(len(leads_to_create), campaign_id))
+
+
+def store_campaigns_from_csv(csv_path):
+    import csv
+    from django.utils import timezone
+
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    # Group by name + segment
+    grouped = {}
+    for row in rows:
+        key = (row['name'], row['segment'])
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(row)
+
+    for (name, segment), group_rows in grouped.items():
+        # Get or create campaign for this name + segment
+        campaign_id = "{}-{}-{}".format(
+            name, segment, timezone.now().strftime("%Y%m%d")
+        )
+
+        agent = Agent.objects.get(telecard_username=name)
+        campaign = Campaign.objects.create(
+            agent=agent,
+            segment='acquisition',
+            campaign_id=campaign_id,
+            campaign_name="{} - {}".format(name, segment),
+            status="active"
+        )
+        logger.info("Created campaign: {}".format(campaign_id))
+
+        # Create leads for this campaign
+        leads_to_create = []
+        for row in group_rows:
+            leads_to_create.append(Lead(
+                campaign=campaign,
+                udhaar_lead_id=row['dukaan_account_id'],
+                phone_number=str(row['number']),
+                customer_name=str(row['name']),
+                status="pending",
+            ))
+
+        Lead.objects.bulk_create(leads_to_create, ignore_conflicts=True)
+        logger.info("Created {} leads for campaign {}".format(len(leads_to_create), campaign_id))

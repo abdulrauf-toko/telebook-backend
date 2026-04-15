@@ -70,8 +70,8 @@ def initiate_dialer_cycle(self):
         secondary_dialed = process_secondary_queue()
         logger.info(f"Secondary queue processed: {secondary_dialed} calls")
         
-        aquisition_dialed = process_aquisition_queue()
-        logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
+        # aquisition_dialed = process_aquisition_queue()
+        # logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
 
         # Step 4: Check and refill queues if needed
         check_and_refill_queue()
@@ -446,13 +446,14 @@ def refill_queue(self):
                 count += 1
 
                 # acquisition → default queue
-                if active_campaign.segment == "acquisition":
-                    new_queue["0"].append(queue_object)
-                    if not added:
-                        add_agent_to_set(agent_id)
-                        added = True
-                else:
-                    new_queue[agent_id].append(queue_object)
+                # if active_campaign.segment == "acquisition":
+                #     new_queue["0"].append(queue_object)
+                #     if not added:
+                #         add_agent_to_set(agent_id)
+                #         added = True
+                # else:
+                #     new_queue[agent_id].append(queue_object)
+                new_queue[agent_id].append(queue_object)
 
                 if count >= 50:
                     break  # Limit to 50 leads per campaign to prevent overloading queue

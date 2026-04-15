@@ -12,6 +12,7 @@ class AgentConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.agent_id = self.scope['url_route']['kwargs']['agent_id']
         user, group = await get_user(self.agent_id)
+        self.group_name = f"groups_{group}"
 
         await self.channel_layer.group_add(f"agent_{self.agent_id}", self.channel_name)
         # Register into group

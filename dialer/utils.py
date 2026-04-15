@@ -444,7 +444,7 @@ def originate_call(
             park=park
         )
         
-        logger.info(f"Originate command: {originate_command}")
+        # logger.info(f"Originate command: {originate_command}")
         if not originate_command:
             raise Exception("originate command failed")
         

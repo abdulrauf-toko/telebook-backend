@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Login Form Styles */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-card h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+            font-size: 28px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .error-message {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        /* Dashboard Styles */
+        .dashboard-header {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dashboard-header h1 {
+            color: #333;
+            font-size: 28px;
+        }
+
+        .dashboard-header .agent-info {
+            text-align: right;
+        }
+
+        .dashboard-header .agent-name {
+            font-size: 18px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .dashboard-header .agent-extension {
+            font-size: 14px;
+            color: #999;
+        }
+
+        .change-user-btn {
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .change-user-btn:hover {
+            background: #e0e0e0;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #667eea;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-card.answered {
+            border-left-color: #28a745;
+        }
+
+        .stat-card.failed {
+            border-left-color: #dc3545;
+        }
+
+        .stat-card.no-answer {
+            border-left-color: #ffc107;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #999;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        /* Call Logs Table */
+        .call-logs-section {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .call-logs-section h2 {
+            margin-bottom: 25px;
+            color: #333;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .call-logs-section h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .call-logs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .call-logs-table thead {
+            background: #f8f9fa;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .call-logs-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .call-logs-table td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+
+        .call-logs-table tbody tr {
+            transition: background 0.2s;
+        }
+
+        .call-logs-table tbody tr:hover {
+            background: #f9f9f9;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-badge.answered {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-badge.no-answer {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-badge.busy {
+            background: #cfe2ff;
+            color: #084298;
+        }
+
+        .status-badge.cancelled {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .status-badge.invalid {
+            background: #f5c2c7;
+            color: #842029;
+        }
+
+        .phone-number {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .duration {
+            font-weight: 600;
+            color: #764ba2;
+        }
+
+        .no-logs-message {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .empty-state svg {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 20px;
+            color: #ddd;
+        }
+
+        .empty-state p {
+            color: #999;
+            font-size: 16px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .dashboard-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .dashboard-header .agent-info {
+                text-align: center;
+                margin-top: 15px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .call-logs-table {
+                font-size: 14px;
+            }
+
+            .call-logs-table th,
+            .call-logs-table td {
+                padding: 10px 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% if not agent %}
+            <!-- Login Form -->
+            <div class="login-container">
+                <div class="login-card">
+                    <h1>📞 Agent Dashboard</h1>
+                    {% if error_message %}
+                        <div class="error-message">{{ error_message }}</div>
+                    {% endif %}
+                    <form method="GET" action="{% url 'agent-dashboard' %}">
+                        <div class="form-group">
+                            <label for="username">Username</label>
+                            <input 
+                                type="text" 
+                                id="username" 
+                                name="username" 
+                                placeholder="Enter your username"
+                                required
+                                autofocus
+                            />
+                        </div>
+                        <button type="submit" class="btn">View Dashboard</button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <!-- Dashboard Content -->
+            <div class="dashboard-header">
+                <h1>📊 Agent Dashboard</h1>
+                <div class="agent-info">
+                    <div class="agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</div>
+                    <div class="agent-extension">Extension: {{ agent.extension }}</div>
+                    <form method="GET" action="{% url 'agent-dashboard' %}" style="margin-top: 10px;">
+                        <button type="submit" class="change-user-btn">Switch User</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Unique Phone Numbers Called</div>
+                    <div class="stat-value">{{ unique_phone_count }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Leads Today</div>
+                    <div class="stat-value">{{ today_leads_count }}</div>
+                </div>
+                <div class="stat-card answered">
+                    <div class="stat-label">✓ Answered</div>
+                    <div class="stat-value">{{ stats.answered }}</div>
+                </div>
+                <div class="stat-card failed">
+                    <div class="stat-label">📞 Busy</div>
+                    <div class="stat-value">{{ stats.busy }}</div>
+                </div>
+                <div class="stat-card no-answer">
+                    <div class="stat-label">⏱ No Answer</div>
+                    <div class="stat-value">{{ stats.no_answer }}</div>
+                </div>
+            </div>
+
+            <!-- Call Logs Section -->
+            <div class="call-logs-section">
+                <h2>Today's Call Logs</h2>
+                
+                {% if call_logs %}
+                    <table class="call-logs-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Lead Name</th>
+                                <th>Phone Number</th>
+                                <th>Status</th>
+                                <th>Duration (sec)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in call_logs %}
+                                <tr>
+                                    <td>{{ log.initiated_at_karachi|date:"H:i:s" }}</td>
+                                    <td>{{ log.lead.customer_name|default:"N/A" }}</td>
+                                    <td class="phone-number">{{ log.to_number }}</td>
+                                    <td>
+                                        <span class="status-badge {{ log.status }}">
+                                            {{ log.get_status_display }}
+                                        </span>
+                                    </td>
+                                    <td class="duration">
+                                        {% if log.status == 'answered' %}
+                                            {{ log.duration_seconds }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <div class="empty-state">
+                        <p>No call logs for today yet. Start making calls!</p>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
