@@ -41,6 +41,10 @@ class Agent(models.Model):
     telecard_username = models.CharField(
         max_length=50, null=True, blank=True
     )
+
+    udhaar_username = models.CharField(
+        max_length=50, null=True, blank=True
+    )
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)

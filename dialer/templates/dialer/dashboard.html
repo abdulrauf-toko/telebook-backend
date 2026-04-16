@@ -147,6 +147,59 @@
             background: #e0e0e0;
         }
 
+        .date-filter-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: flex-end;
+            gap: 15px;
+        }
+
+        .date-filter-group {
+            flex: 1;
+        }
+
+        .date-filter-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .date-filter-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .date-filter-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .date-filter-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .date-filter-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
         /* Stats Grid */
         .stats-grid {
             display: grid;
@@ -346,6 +399,27 @@
                 grid-template-columns: 1fr;
             }
 
+            .date-filter-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .date-filter-group {
+                flex: 1;
+            }
+
+            .date-filter-group form {
+                flex-direction: column !important;
+            }
+
+            .date-filter-group input {
+                margin-bottom: 10px;
+            }
+
+            .date-filter-btn {
+                width: 100%;
+            }
+
             .call-logs-table {
                 font-size: 14px;
             }
@@ -367,7 +441,7 @@
                     {% if error_message %}
                         <div class="error-message">{{ error_message }}</div>
                     {% endif %}
-                    <form method="GET" action="{% url 'agent-dashboard' %}">
+                    <form method="GET" action="">
                         <div class="form-group">
                             <label for="username">Username</label>
                             <input 
@@ -390,8 +464,26 @@
                 <div class="agent-info">
                     <div class="agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</div>
                     <div class="agent-extension">Extension: {{ agent.extension }}</div>
-                    <form method="GET" action="{% url 'agent-dashboard' %}" style="margin-top: 10px;">
+                    <form method="GET" action="" style="margin-top: 10px;">
                         <button type="submit" class="change-user-btn">Switch User</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Date Filter Section -->
+            <div class="date-filter-section">
+                <div class="date-filter-group">
+                    <label for="date_filter">📅 Select Date</label>
+                    <form method="GET" action="" style="display: flex; gap: 10px; align-items: flex-end;">
+                        <input type="hidden" name="username" value="{{ username }}">
+                        <input 
+                            type="date" 
+                            id="date_filter" 
+                            name="date_filter" 
+                            value="{{ selected_date }}"
+                            style="flex: 1;"
+                        />
+                        <button type="submit" class="date-filter-btn">Filter</button>
                     </form>
                 </div>
             </div>
@@ -422,7 +514,7 @@
 
             <!-- Call Logs Section -->
             <div class="call-logs-section">
-                <h2>Today's Call Logs</h2>
+                <h2>Call Logs - {{ selected_date|date:"D, M d, Y" }}</h2>
                 
                 {% if call_logs %}
                     <table class="call-logs-table">

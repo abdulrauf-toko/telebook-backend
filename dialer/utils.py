@@ -7,12 +7,13 @@ import logging
 import time
 from django.utils import timezone
 from .models import Agent
-# from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
 from typing import Dict, List, Tuple, Optional
 import uuid
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.constants import ORIGINATE_TIMEOUT, TOKOLAB_NUMBER
 from django.conf import settings
+from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +445,6 @@ def originate_call(
             park=park
         )
         
-        # logger.info(f"Originate command: {originate_command}")
         if not originate_command:
             raise Exception("originate command failed")
         
@@ -456,7 +456,7 @@ def originate_call(
             logger.info(f"Call initiated. Tracking Job: {job_uuid}")
             return True, call_uuid
         else:
-            logger.error("Failed to start call")
+            logger.error(f"Failed to start call: {job_response}")
             return False, None
     
     except Exception as exc:
@@ -471,6 +471,7 @@ def build_originate_command(
     agent_id: Optional[str] = None,
     payload: Optional[dict] = None,
     auto_bridge: bool = False,
+    blocking: bool = False
 ) -> str:
     try:
         # Build metadata
@@ -501,9 +502,14 @@ def build_originate_command(
         else:
             call_string = f"user/{phone_number}" #phone number is extension (eg 1000) #TODO i believe this should be the call string when auto bridge so that the softphone rings first
 
+        recording_path = get_recording_path(call_id)
         
         originate_cmd = (
-            f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},{var_string}}}{call_string} {application}{bridge_to_string}"
+            f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},"
+            f"execute_on_answer='record_session {recording_path}',"
+            f"recording_follow_transfer=true,"
+            f"RECORD_STEREO=true,"
+            f"{var_string}}}{call_string} {application}{bridge_to_string}"
         )
         
         return originate_cmd
@@ -511,3 +517,10 @@ def build_originate_command(
     except Exception as exc:
         logger.exception(f"Error building originate command: {exc}")
         return None
+
+
+def get_recording_path(call_uuid: str):
+    date = datetime.now().strftime("%Y-%m-%d")
+    directory = f"/home/pbx/telebook-pbx/recordings/{date}"
+    os.makedirs(directory, exist_ok=True)
+    return f"{directory}/{call_uuid}.wav"

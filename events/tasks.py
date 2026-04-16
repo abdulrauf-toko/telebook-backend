@@ -184,7 +184,7 @@ def dispatch_event_handler(event) -> str:
                 if hangup_cause == 'NORMAL_CLEARING':
                     if agent_id:
                         handle_free_agent(agent_id)
-
+                # logger.info('===>', call_details)
                 call_ending_routine(call_details, event, direction)
             else:
                 logger.debug(f"No specific handler for event type: {event_type}")

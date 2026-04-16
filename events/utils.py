@@ -8,7 +8,7 @@ from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_t
 
 logger = logging.getLogger(__name__)
 
-FS_TO_DJANGO_STATUS = {
+FS_TO_DJANGO_STATUS = { #TODO
     # Answered
     'NORMAL_CLEARING': 'answered',
     
@@ -17,7 +17,6 @@ FS_TO_DJANGO_STATUS = {
     'CALL_REJECTED': 'busy', # Usually means they hit "Decline"
     
     # No Answer
-    'NO_ANSWER': 'no_answer',
     'NO_USER_RESPONSE': 'no_answer',
     'PROGRESS_TIMEOUT': 'no_answer',
     

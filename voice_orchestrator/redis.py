@@ -22,16 +22,7 @@ SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY = "SECONDARY_SALES_CUSTOMERS_W
 
 LOCK_TIMEOUTS = 3
 SLEEP = 0.05
-#####
 
-
-# pool = ConnectionPool(
-#     host=settings.CELERY_BROKER_URL,
-#     db=settings.CELERY_RESULT_BACKEND,
-#     decode_responses=True
-#     )
-
-# conn = redis.Redis(connection_pool=pool)
 conn = redis.Redis.from_url(
     settings.REDIS_URL,
     decode_responses=True

@@ -1,28 +1,19 @@
-"""
-API Views for Dialer endpoints.
-
-Simple JSON-based endpoints for campaign management, lead upload, and call tracking.
-Replaces Telecard API functionality.
-"""
-
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
-from django.db import transaction
 from django.utils import timezone
-from django.shortcuts import get_object_or_404, render
-from django.db.models import Q
+from django.shortcuts import render
 import orjson as json
-import csv
-import io
 import logging
-import re
 from datetime import date
 import pytz
-from events.utils import mark_agent_idle_in_cache, mark_agent_logged_in_cache, logout_agent
+from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
 
 from django.contrib.auth import authenticate, login, logout
-from .models import Agent, Campaign, Lead, CallLog
+
+from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
+from .models import Agent, Lead, CallLog
+from dialer.utils import originate_call
 
 logger = logging.getLogger(__name__)
 
@@ -133,18 +124,215 @@ def mark_available(request):
         return JsonResponse({'error': 'Internal server error'}, status=500)
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def initiate_call(request):
+    try:
+        data = json.loads(request.body)
+        phone_number = data.get('phone_number')
+        username = data.get('username')
+        
+        if not phone_number or not username:
+            return JsonResponse({
+                'success': False,
+                'message': 'phone_number and username are required'
+            }, status=400)
+        
+        # Validate phone number format (should start with 03xx)
+        if not phone_number.startswith('03') or len(phone_number) != 11:
+            return JsonResponse({
+                'success': False,
+                'message': 'Invalid phone number format. Should start with 03xx and be 11 digits'
+            }, status=400)
+        
+        try:
+            agent = Agent.objects.get(telecard_username=username)
+        except (Agent.DoesNotExist):
+            return JsonResponse({
+                'success': False,
+                'message': 'user not registered on softphone'
+            }, status=404)
+        
+        # Check if agent is active
+        if not agent.is_active:
+            return JsonResponse({
+                'success': False,
+                'message': 'Agent is not active'
+            }, status=400)
+        
+        payload = {
+            'manual_trigger': True
+        }
+        success, call_uuid = originate_call(
+            phone_number=phone_number,
+            park=False,
+            agent_id=agent.id,
+            payload=payload,
+            auto_bridge=True
+        )
+
+        if not success:
+            return JsonResponse({
+                'success': False,
+                'message': 'Failed to originate call'
+            }, status=400)
+        
+        add_active_call_in_cache(call_uuid, {
+                "agent_id": agent.id,
+                "phone_number": phone_number,
+                "payload": payload,
+                "call_uuid": call_uuid,
+                "initiated_at": timezone.now().isoformat()
+            })
+        
+        logger.info(f"Call initiated: {call_uuid} from agent {username} to {phone_number}")
+        
+        return JsonResponse({
+            'success': True,
+            'call_uuid': call_uuid
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid JSON in request body'
+        }, status=400)
+    except Exception as e:
+        logger.exception(f"Error initiating call: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Internal server error'
+        }, status=500)
+
+
+@require_http_methods(["GET"])
+def poll_call_status(request, uuid):
+    lock_key = f"{ACTIVE_CALL_LOCK_REDIS_KEY}{uuid}"
+    call_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    try:
+        if call_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+            # Get the call log
+            raw_data = conn.hget(ACTIVE_CALLS_REDIS_KEY, uuid)
+            if raw_data:
+                return JsonResponse({
+                    "success": True,
+                    "status": "pending"
+                })
+        else:
+            logger.error(f"Could not acquire lock for call {uuid} while polling - System Busy")
+            return JsonResponse({
+                    "success": False,
+                    "message": "Error acquiring lock"
+                }, status=500)
+    except Exception as e:
+        logger.exception(f"Error Getting data from redis for call {uuid} while polling: {e}")
+    finally:
+        if call_lock.owned():
+            call_lock.release()
+
+    lock_key = f"{COMPLETED_CALLS_REDIS_KEY}:lock"
+    call_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    try:
+        if call_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+            # Get the call log
+            raw_calls = conn.lrange(COMPLETED_CALLS_REDIS_KEY, 0, -1)
+                
+        else:
+            logger.error(f"Could not acquire lock for call {uuid} while polling - System Busy")
+            return JsonResponse({
+                    "success": False,
+                    "message": "Error acquiring lock"
+                }, status=500)
+    except Exception as e:
+        logger.exception(f"Error Getting data from redis for call {uuid} while polling: {e}")
+        return JsonResponse({
+                    "success": False,
+                    "message": "Error getting data from redis"
+                }, status=500)
+    finally:
+        if call_lock.owned():
+            call_lock.release()
+
+    completed_calls = [json.loads(call) for call in raw_calls]
+    for call in completed_calls:
+        if call.get('call_uuid') == uuid:
+            # get_disposition_mapping = get_disposition_mapping(call.get('disconnect_reason'))
+            return JsonResponse({
+                "success": True,
+                "status": 'completed',
+                "call_disposition": 'xxx'
+            })        
+    
+    try:
+        data = CallLog.objects.get(call_id=uuid)
+    except CallLog.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'Call not found'
+        }, status=404)
+        
+
+
+@require_http_methods(["GET"])
+def get_call_recording(request, uuid):
+    """
+    Fetches the recording URL for a completed call.
+    
+    GET /call-recordings/{uuid}
+    Response: {"success": true, "recording_url": "https://..."} or {"success": false, "message": "error"}
+    """
+    try:
+        # Get the call log
+        try:
+            call_log = CallLog.objects.get(call_id=uuid)
+        except CallLog.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'message': 'Call not found'
+            }, status=404)
+        
+        # Check if call has a recording
+        if not call_log.recording_url:
+            return JsonResponse({
+                'success': False,
+                'message': 'Recording not available for this call'
+            }, status=404)
+        
+        return JsonResponse({
+            'success': True,
+            'recording_url': call_log.recording_url
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting call recording for {uuid}: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Internal server error'
+        }, status=500)
+
+
 def agent_dashboard(request):
     """
-    Dashboard view for agents to see their call logs and leads for today.
-    Shows call logs for today, total call logs, and total leads assigned.
+    Dashboard view for agents to see their call logs and leads.
+    Shows call logs for a selected date (defaults to today), total call logs, and total leads assigned.
     """
     username = request.GET.get('username') or request.POST.get('username')
+    date_filter = request.GET.get('date_filter') or request.POST.get('date_filter')
+    
     agent = None
     call_logs = []
     unique_phone_count = 0
     today_leads_count = 0
     error_message = None
     stats = {}
+    selected_date = date.today()
+    
+    # Parse date_filter if provided
+    if date_filter:
+        try:
+            selected_date = date.fromisoformat(date_filter)
+        except (ValueError, TypeError):
+            selected_date = date.today()
     
     if username:
         try:
@@ -152,13 +340,10 @@ def agent_dashboard(request):
             user = User.objects.get(username=username)
             agent = Agent.objects.get(user=user)
             
-            # Get today's date
-            today = date.today()
-            
-            # Get all call logs for today for this agent
+            # Get all call logs for selected date for this agent
             call_logs = CallLog.objects.filter(
                 agent=agent,
-                initiated_at__date=today
+                initiated_at__date=selected_date
             ).select_related('lead', 'campaign').order_by('-initiated_at')
             
             # Convert call logs to Karachi timezone
@@ -169,16 +354,16 @@ def agent_dashboard(request):
                 else:
                     log.initiated_at_karachi = None
             
-            # Count unique phone numbers called today
+            # Count unique phone numbers called
             unique_phone_count = call_logs.values('to_number').distinct().count()
             
-            # Get leads assigned to this agent today
-            today_leads = Lead.objects.filter(
+            # Get leads assigned to this agent on selected date
+            leads_on_date = Lead.objects.filter(
                 campaign__active=True,
-                campaign__created_at__date=today,
+                campaign__created_at__date=selected_date,
                 campaign__agent=agent
             )
-            today_leads_count = today_leads.count()
+            today_leads_count = leads_on_date.count()
             
             
             # Calculate statistics
@@ -206,6 +391,7 @@ def agent_dashboard(request):
         'today_leads_count': today_leads_count,
         'error_message': error_message,
         'stats': stats,
+        'selected_date': selected_date.isoformat(),
     }
     
     return render(request, 'dialer/dashboard.html', context)
