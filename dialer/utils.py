@@ -6,7 +6,7 @@ import orjson as json
 import logging
 import time
 from django.utils import timezone
-from .models import Agent
+from .models import Agent, Campaign
 from typing import Dict, List, Tuple, Optional
 import uuid
 from voice_orchestrator.freeswitch import fs_manager
@@ -471,7 +471,6 @@ def build_originate_command(
     agent_id: Optional[str] = None,
     payload: Optional[dict] = None,
     auto_bridge: bool = False,
-    blocking: bool = False
 ) -> str:
     try:
         # Build metadata
@@ -483,8 +482,7 @@ def build_originate_command(
             payload["agent_id"] = agent_id
 
         if park:
-            application = '&park' 
-            payload['originate_timeout'] = ORIGINATE_TIMEOUT #disconnect after x seconds if fails to bridge #TODO FIGURE OUT WHICH LEG IT SHOULD BE
+            application = 'custom_park' 
         else:
             application = "&bridge"
 
@@ -493,22 +491,23 @@ def build_originate_command(
             agent_extension = get_agent_extension(agent_id)
             bridge_to_string = f"(user/{agent_extension})"
             payload['auto_bridge'] = "true"
+            payload['to_number'] = phone_number
 
         var_string = ','.join([f"sip_h_X-{k}='{v}'" for k, v in payload.items()])
 
         if settings.ENV == 'PROD':
-            call_string = f"sofia/gateway/tokolab_trunk/{phone_number}"
+            extension = get_agent_extension(agent_id) if agent_id else None
+            if auto_bridge:
+                call_string = f"sofia/internal/{extension}@{settings.SIP_IP}"
+            else:
+                call_string = f"sofia/gateway/tokolab_trunk/{phone_number}"
             # call_string = f"sofia/gateway/tokolab_trunk/03152526525"
         else:
-            call_string = f"user/{phone_number}" #phone number is extension (eg 1000) #TODO i believe this should be the call string when auto bridge so that the softphone rings first
+            call_string = f"user/{phone_number}" 
 
-        recording_path = get_recording_path(call_id)
         
         originate_cmd = (
             f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},"
-            f"execute_on_answer='record_session {recording_path}',"
-            f"recording_follow_transfer=true,"
-            f"RECORD_STEREO=true,"
             f"{var_string}}}{call_string} {application}{bridge_to_string}"
         )
         
@@ -524,3 +523,21 @@ def get_recording_path(call_uuid: str):
     directory = f"/home/pbx/telebook-pbx/recordings/{date}"
     os.makedirs(directory, exist_ok=True)
     return f"{directory}/{call_uuid}.wav"
+
+
+def get_disposition_mapping(disconnect_reason: str):
+    from events.utils import FS_TO_DJANGO_STATUS
+    return FS_TO_DJANGO_STATUS.get(disconnect_reason, 'unknown')
+
+
+def flush_redis_data():
+    try:
+        conn.flushdb()
+        logger.info("Redis data flushed successfully")
+    except Exception as e:
+        logger.error(f"Error flushing Redis data: {e}")
+
+def make_campaigns_inactive():
+    campaigns = Campaign.objects.filter(active=True)
+    count = campaigns.update(active=False)
+    logger.info(f"Marked {count} campaigns as inactive")

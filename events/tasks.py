@@ -61,7 +61,6 @@ REDIS_LOCK_TTL = 10
 def dispatch_event_handler(event) -> str:
     try:
         event_type = event.headers.get("Event-Name")
-        logger.info(f"Received event ========>: {event_type}")
         direction = event.headers.get("Call-Direction")
         other_leg_uuid = event.headers.get("Other-Leg-Unique-ID", None)
         caller_id_number = event.headers.get("Caller-Caller-ID-Number", None) #NOT SURE IF THIS IS THE CORRECT ONE. CONFIRM LATER
@@ -69,7 +68,8 @@ def dispatch_event_handler(event) -> str:
         variable_call_id = event.headers.get("variable_sip_h_X-call_id", None) #our internal call id to track in cache and db
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
-        logger.info(f"Event details: event_type={event_type}, direction={direction}, other_leg_uuid={other_leg_uuid}, caller_id_number={caller_id_number}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, auto_bridge={auto_bridge}, agent_id={agent_id}")
+        to_number = event.headers.get("variable_sip_h_X-to_number", None)
+        logger.info(f"Received event ========>: {event_type}: direction={direction}, other_leg_uuid={other_leg_uuid}, caller_id_number={caller_id_number}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, auto_bridge={auto_bridge}, agent_id={agent_id}, to_number={to_number}")
         agent_lock = None
         if agent_id:
             lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
@@ -97,8 +97,9 @@ def dispatch_event_handler(event) -> str:
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else:
                                     disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
-                        # else:
-                        #     connect_agent_to_call(agent_id, variable_uuid)
+                        else: #agent picked up first. 
+                            if agent_id:
+                                connect_agent_to_call(agent_id, variable_uuid, variable_call_id, to_number) #make the call to number  
                     else:
                         update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
                 else:
@@ -221,9 +222,9 @@ def sync_to_db(self):
         for call_details in call_list:
             payload = call_details.get('payload', {})
             lead_id = payload.get('lead_id')
-            if not lead_id:
-                logger.warning(f"No lead_id found in call payload for call_id {call_details.get('call_uuid', None)}. Skipping DB sync for this call.")
-                continue
+            # if not lead_id:
+            #     logger.warning(f"No lead_id found in call payload for call_id {call_details.get('call_uuid', None)}. Skipping DB sync for this call.")
+            #     continue
 
             disconnect_reason = call_details.get('disconnect_reason')
             initiated_at = call_details.get('initiated_at', None)

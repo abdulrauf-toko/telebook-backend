@@ -1,3 +1,5 @@
+import uuid
+
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
@@ -10,10 +12,10 @@ import pytz
 from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
 
 from django.contrib.auth import authenticate, login, logout
-
+from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from .models import Agent, Lead, CallLog
-from dialer.utils import originate_call
+from dialer.utils import build_originate_command, originate_call, get_disposition_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +148,7 @@ def initiate_call(request):
             }, status=400)
         
         try:
-            agent = Agent.objects.get(telecard_username=username)
+            agent = Agent.objects.get(udhaar_username=username)
         except (Agent.DoesNotExist):
             return JsonResponse({
                 'success': False,
@@ -161,21 +163,26 @@ def initiate_call(request):
             }, status=400)
         
         payload = {
-            'manual_trigger': True
+            'manual_trigger': 'true'
         }
-        success, call_uuid = originate_call(
+
+        call_uuid = str(uuid.uuid4())      
+        
+        originate_command = build_originate_command(
+            call_id=call_uuid,
             phone_number=phone_number,
-            park=False,
             agent_id=agent.id,
             payload=payload,
-            auto_bridge=True
+            auto_bridge=True,
+            park=False
         )
+        fs_manager.bgapi(originate_command)
 
-        if not success:
-            return JsonResponse({
-                'success': False,
-                'message': 'Failed to originate call'
-            }, status=400)
+        # if not success:
+        #     return JsonResponse({
+        #         'success': False,
+        #         'message': 'Failed to originate call'
+        #     }, status=400)
         
         add_active_call_in_cache(call_uuid, {
                 "agent_id": agent.id,
@@ -256,15 +263,41 @@ def poll_call_status(request, uuid):
     completed_calls = [json.loads(call) for call in raw_calls]
     for call in completed_calls:
         if call.get('call_uuid') == uuid:
-            # get_disposition_mapping = get_disposition_mapping(call.get('disconnect_reason'))
+            call_disposition = get_disposition_mapping(call.get('disconnect_reason'))
+            if call_disposition == 'failed':
+                return JsonResponse({
+                    "success": False,
+                    "status": 'failed',
+                    "message": call.get('disconnect_reason')
+                })
             return JsonResponse({
-                "success": True,
-                "status": 'completed',
-                "call_disposition": 'xxx'
-            })        
+                    "success": True,
+                    "status": 'completed',
+                    "call_disposition": call_disposition
+                })
     
     try:
         data = CallLog.objects.get(call_id=uuid)
+        if data.status == 'Answered':
+            call_disposition = 'answered'
+        elif data.status == 'No Answer':
+            call_disposition = 'not_answered'
+        elif data.status == 'busy':
+            call_disposition = 'busy'
+        elif data.status == 'failed':
+            call_disposition = 'failed'
+            return JsonResponse({
+                "success": False,
+                "status": 'failed',
+                "message": data.disconnect_reason
+            }, status=404)    
+        else:
+            call_disposition = 'unknown'
+        return JsonResponse({
+                "success": True,
+                "status": 'completed',
+                "call_disposition": call_disposition
+            })        
     except CallLog.DoesNotExist:
         return JsonResponse({
             'success': False,

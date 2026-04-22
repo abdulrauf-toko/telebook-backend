@@ -348,17 +348,23 @@ def bridge_call(agent_id, event_obj):
         return None
 
 
-def transfer_agent_to_call(call_uuid, agent_id):
-    extension = get_agent_extension(agent_id)
+def transfer_agent_to_call(call_uuid, agent_id, phone_number=None):
+    if phone_number:
+        extension = phone_number
+    else:
+        extension = get_agent_extension(agent_id)
     result = fs_manager.api(f"uuid_transfer {call_uuid} {extension}")
     if result.startswith("+OK"):
         logger.info(f"Successfully Transfering {call_uuid} to Agent extension: {extension}")
         return True
     return False
 
-def connect_agent_to_call(agent_id, call_uuid, custom_uuid):
-    logger.info(f"Connecting agent {agent_id} to call {call_uuid}")
-    success = transfer_agent_to_call(call_uuid, agent_id)
+def connect_agent_to_call(agent_id, call_uuid, custom_uuid, phone_number=None):
+    if phone_number:
+        logger.info(f"Making call with phone number {phone_number}")
+    else:
+        logger.info(f"Connecting agent {agent_id} to call {call_uuid}")
+    success = transfer_agent_to_call(call_uuid, agent_id, phone_number)
     if success:
         mark_agent_busy_in_cache(agent_id, custom_uuid)
         update_active_call_in_cache(custom_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 

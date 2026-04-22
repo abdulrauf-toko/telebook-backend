@@ -35,7 +35,11 @@ ENV = os.getenv('ENV')
 # ]
 
 CORS_ALLOW_ALL_ORIGINS = True
-
+CORS_ALLOWED_ORIGINS = [
+    "https://udhaar-api.oscar.pk",
+    "https://udhaar-api.oscar.pk/"
+]
+CORS_ALLOW_CREDENTIALS = True
 ALLOWED_HOSTS = ["*"]
 
 
@@ -169,6 +173,9 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes hard limit
+
+SERVER_IP = os.getenv('SERVER_IP')
+SIP_IP = os.getenv('SIP_IP')
 
 # Queue Configuration
 CELERY_TASK_QUEUES = {
