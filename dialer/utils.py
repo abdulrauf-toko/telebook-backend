@@ -508,7 +508,7 @@ def build_originate_command(
         
         originate_cmd = (
             f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},"
-            f"{var_string}}}{call_string} {application}{bridge_to_string}"
+            f"{var_string}}}{call_string} {application}"
         )
         
         return originate_cmd

@@ -30,14 +30,15 @@ DEBUG = True
 
 ENV = os.getenv('ENV')
 
-# CORS_ALLOWED_ORIGINS = [
-#     "*"  # Optional: Add this if needed
-# ]
-
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS Configuration
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "https://udhaar-api.oscar.pk",
-    "https://udhaar-api.oscar.pk/"
+    "https://192.168.0.25",
+    "http://192.168.0.25",
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:8000",
 ]
 CORS_ALLOW_CREDENTIALS = True
 ALLOWED_HOSTS = ["*"]

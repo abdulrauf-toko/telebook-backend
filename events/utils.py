@@ -353,6 +353,7 @@ def transfer_agent_to_call(call_uuid, agent_id, phone_number=None):
         extension = phone_number
     else:
         extension = get_agent_extension(agent_id)
+        extension = f"agent_{extension}"
     result = fs_manager.api(f"uuid_transfer {call_uuid} {extension}")
     if result.startswith("+OK"):
         logger.info(f"Successfully Transfering {call_uuid} to Agent extension: {extension}")

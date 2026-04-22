@@ -127,12 +127,14 @@ def mark_available(request):
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "OPTIONS"])
 def initiate_call(request):
     try:
         data = json.loads(request.body)
         phone_number = data.get('phone_number')
         username = data.get('username')
+
+        logger.info(f"Initiating call to {phone_number} for agent {username}")
         
         if not phone_number or not username:
             return JsonResponse({
@@ -170,11 +172,11 @@ def initiate_call(request):
         
         originate_command = build_originate_command(
             call_id=call_uuid,
-            phone_number=phone_number,
-            agent_id=agent.id,
+            phone_number="03152526525",
+            agent_id=2,
             payload=payload,
-            auto_bridge=True,
-            park=False
+            # auto_bridge=True,
+            park=True
         )
         fs_manager.bgapi(originate_command)
 
@@ -212,7 +214,7 @@ def initiate_call(request):
         }, status=500)
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "OPTIONS"])
 def poll_call_status(request, uuid):
     lock_key = f"{ACTIVE_CALL_LOCK_REDIS_KEY}{uuid}"
     call_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
