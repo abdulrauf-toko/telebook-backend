@@ -80,6 +80,9 @@ def get_all_active_sales_calls():
     pass
 
 def remove_active_call(call_id):
+    if not call_id:
+        logger.error("No call_id provided to remove_active_call")
+        return None
     pipe = conn.pipeline()
     pipe.hget(ACTIVE_CALLS_REDIS_KEY, call_id)
     pipe.hdel(ACTIVE_CALLS_REDIS_KEY, call_id)
@@ -481,10 +484,12 @@ def build_originate_command(
         if agent_id: 
             payload["agent_id"] = agent_id
 
-        if park:
-            application = 'custom_park' 
-        else:
-            application = "&bridge"
+        # if park:
+            # application = 'custom_park' 
+        # else:
+            # application = "&bridge"
+
+        application = 'custom_park'
 
         bridge_to_string = ""
         if auto_bridge:

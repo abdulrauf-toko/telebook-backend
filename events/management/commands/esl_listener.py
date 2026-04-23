@@ -20,7 +20,7 @@ class Command(BaseCommand):
                     password=settings.FREESWITCH_ESL_PASSWORD
                 )
                 fs.connect()
-                fs.send('event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_PARK CHANNEL_EXECUTE CHANNEL_PROGRESS CHANNEL_ORIGINATE CHANNEL_CREATE')
+                fs.send('event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_ORIGINATE CHANNEL_EXECUTE')
                 fs.register_handle('*', dispatch_event_handler)
                 logger.info("FreeSWITCH Connected. Listening for events...")
                 while fs.connected:

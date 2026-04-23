@@ -112,6 +112,8 @@ class CallLog(models.Model):
         ('failed', 'Failed'),
         ('no_answer', 'No Answer'),
         ('busy', 'Busy'),
+        ('lose_race', 'Lose Race'),
+        ('user_not_registered', 'User Not Registered'),
         ('invalid', 'Invalid Number'),
         ('cancelled', 'Cancelled'),
     ]

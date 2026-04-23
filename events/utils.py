@@ -23,8 +23,8 @@ FS_TO_DJANGO_STATUS = { #TODO
     # Failed / System Issues
     'RECOVERY_ON_TIMER': 'failed',
     'ORIGINATOR_CANCEL': 'cancelled',
-    'LOSE_RACE': 'failed',
-    'USER_NOT_REGISTERED': 'failed',
+    'LOSE_RACE': 'lose_race',
+    'USER_NOT_REGISTERED': 'user_not_registered',
     
     # Invalid Number
     'UNALLOCATED_NUMBER': 'invalid',
@@ -404,7 +404,12 @@ def handle_free_agent(agent_id):
 
 
 def map_call_status(hangup_cause):
-    return FS_TO_DJANGO_STATUS.get(hangup_cause)
+    cause = FS_TO_DJANGO_STATUS.get(hangup_cause, None)
+    if not cause:
+        logger.warning(f"Hangup cause {hangup_cause} not found in mapping. Defaulting to 'failed'")
+        cause = 'failed' 
+    
+    return cause
 
 def sync_to_db_wrapper():
     from events.tasks import sync_to_db
@@ -416,13 +421,17 @@ def sync_to_db_wrapper():
     sync_to_db.apply_async(countdown=30)
 
 def call_ending_routine(call_details, event, direction):
-    if call_details:
-        call_details["ended_at"] = int(event.headers.get("Caller-Channel-Hangup-Time")) if event.headers.get("Caller-Channel-Hangup-Time") else int(time.time())
-        call_details["disconnect_reason"] = event.headers.get("Hangup-Cause")
-        call_details["duration_seconds"] = int(event.headers.get("variable_duration"))
-        call_details['direction'] = direction
-        add_call_to_completed_list(call_details)
-        sync_to_db_wrapper()
+    if not call_details:
+        logger.warning(f"No call details found in cache for call_uuid {event.headers.get('variable_uuid', None)}. Skipping call ending routine.")
+        return
+    call_details["ended_at"] = int(event.headers.get("Caller-Channel-Hangup-Time")) if event.headers.get("Caller-Channel-Hangup-Time") else int(time.time())
+    call_details["disconnect_reason"] = event.headers.get("Hangup-Cause")
+    call_details["duration_seconds"] = int(event.headers.get("variable_duration"))
+    call_details["billable_seconds"] = int(event.headers.get("variable_billsec", 0))    
+    call_details["phone_number"] = event.headers.get("Caller-Destination-Number") or event.headers.get("variable_destination_number")    
+    call_details['direction'] = direction
+    add_call_to_completed_list(call_details)
+    sync_to_db_wrapper()
 
 
 def add_customer_to_waiting_queue(call_id: str, team: str) -> bool:

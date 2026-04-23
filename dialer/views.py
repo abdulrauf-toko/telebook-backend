@@ -172,10 +172,10 @@ def initiate_call(request):
         
         originate_command = build_originate_command(
             call_id=call_uuid,
-            phone_number="03152526525",
-            agent_id=2,
+            phone_number=phone_number,
+            agent_id=agent.id,
             payload=payload,
-            # auto_bridge=True,
+            auto_bridge=True,
             park=True
         )
         fs_manager.bgapi(originate_command)
@@ -266,7 +266,7 @@ def poll_call_status(request, uuid):
     for call in completed_calls:
         if call.get('call_uuid') == uuid:
             call_disposition = get_disposition_mapping(call.get('disconnect_reason'))
-            if call_disposition == 'failed':
+            if call_disposition == 'user_not_registered' or call_disposition == 'failed' or call_disposition == 'lose_race' or call_disposition == 'invalid':
                 return JsonResponse({
                     "success": False,
                     "status": 'failed',
