@@ -10,6 +10,7 @@ import logging
 from datetime import date
 import pytz
 from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
+from django.contrib.auth.decorators import login_required
 
 from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
@@ -50,7 +51,7 @@ def agent_login(request):
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-
+@login_required 
 @csrf_exempt
 @require_http_methods(["POST"])
 def logout_agent_api(request):
@@ -390,7 +391,7 @@ def agent_dashboard(request):
                     log.initiated_at_karachi = None
             
             # Count unique phone numbers called
-            unique_phone_count = call_logs.values('to_number').distinct().count()
+            unique_phone_count = call_logs.values('lead__phone_number').distinct().count()
             
             # Get leads assigned to this agent on selected date
             leads_on_date = Lead.objects.filter(
