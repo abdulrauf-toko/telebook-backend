@@ -7,14 +7,13 @@ import logging
 import time
 from django.utils import timezone
 from .models import Agent, Campaign
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Optional
 import uuid
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.constants import ORIGINATE_TIMEOUT, TOKOLAB_NUMBER
 from django.conf import settings
 from datetime import datetime
 import os
-
 logger = logging.getLogger(__name__)
 
 def get_priority_queue_mapping():
@@ -521,6 +520,16 @@ def build_originate_command(
     except Exception as exc:
         logger.exception(f"Error building originate command: {exc}")
         return None
+
+def is_user_registered(id: str) -> bool:
+    extension = get_agent_extension(id)
+    result = fs_manager.api("show registrations")
+    if not result:
+        return False
+    for line in result.split("\n"):
+        if line.startswith(f"{extension},"):
+            return True
+    return False
 
 
 def get_recording_path(call_uuid: str):

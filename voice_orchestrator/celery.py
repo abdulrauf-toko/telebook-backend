@@ -31,5 +31,13 @@ app.conf.beat_schedule = {
     'dialer-cycle-every-30-seconds': {
         'task': 'dialer.tasks.initiate_dialer_cycle',
         'schedule': 30.0,
+    },
+    'export-call-logs-daily': {
+        'task': 'events.tasks.upload_call_logs_to_s3',
+        'schedule': crontab(hour=19, minute=0),
+    },
+    'end-routine-daily': {
+        'task': 'events.tasks.daily_ending_routine',
+        'schedule': crontab(hour=19, minute=45),
     }
 }

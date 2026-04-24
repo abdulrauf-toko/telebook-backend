@@ -22,17 +22,16 @@ class LeadInline(admin.TabularInline):
 # Admin for Agent
 @admin.register(Agent)
 class AgentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'extension', 'is_active', 'created_at')
+    list_display = ('id', 'is_active', 'created_at')
     list_filter = ('is_active', 'created_at')
-    search_fields = ('extension',)
     inlines = [CallLogInline]
 
 # Admin for CallLog
 @admin.register(CallLog)
 class CallLogAdmin(admin.ModelAdmin):
     list_display = ('call_id', 'agent', 'to_number', 'status', 'initiated_at', 'duration_seconds')
-    list_filter = ('status', 'agent', 'campaign', 'initiated_at')
-    search_fields = ('call_id', 'to_number', 'freeswitch_uuid')
+    # list_filter = ('status', 'agent', 'campaign', 'initiated_at')
+    search_fields = ('call_id', 'lead__phone_number')
     readonly_fields = ('call_id', 'initiated_at', 'ended_at', 'duration_seconds')
     date_hierarchy = 'initiated_at'
 

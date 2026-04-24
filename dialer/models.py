@@ -151,12 +151,6 @@ class CallLog(models.Model):
         help_text="Campaign this call belongs to"
     )
     
-    # Call endpoints
-    from_extension = models.CharField(
-        max_length=20,
-        help_text="Agent extension (originating)",
-        null=True
-    )
     to_number = models.CharField(
         max_length=20,
         help_text="Destination phone number"
@@ -187,14 +181,6 @@ class CallLog(models.Model):
         default=0,
         help_text="Actual talk time in seconds"
     )
-    
-    # Retry tracking
-    attempt_number = models.PositiveIntegerField(
-        default=1,
-        validators=[MinValueValidator(1)],
-        help_text="Retry attempt number",
-        null=True
-    )
 
     # retry_after = models.DateTimeField(
     #     null=True,
@@ -211,20 +197,15 @@ class CallLog(models.Model):
         null=True,
         help_text="URL to call recording"
     )
+
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
     
     class Meta:
-        ordering = ['-initiated_at']
-        # indexes = [
-        #     models.Index(fields=['call_id']),
-        #     models.Index(fields=['freeswitch_uuid']),
-        #     models.Index(fields=['agent', 'initiated_at']),
-        #     models.Index(fields=['campaign', 'status']),
-        #     models.Index(fields=['status', 'initiated_at']),
-        #     models.Index(fields=['to_number']),
-        # ]
+        ordering = ['-created_at']
     
     def __str__(self):
-        return f"Call {self.call_id}: {self.from_extension} → {self.to_number} ({self.status})"
+        return f"Call {self.call_id}: → ({self.status})"
 
 
 class Campaign(models.Model):
@@ -375,11 +356,17 @@ class Lead(models.Model):
     #     db_index=True,
     # ) 
 
-    udhaar_lead_id = models.CharField(
-        max_length=100,
-        # unique=True,
+    udhaar_lead_id = models.IntegerField(
+        null=True,
+        blank=True,
         db_index=True,
         help_text="Unique lead identifier (from Udhaar)"
+    )
+
+    dukaan_account_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Dukaan account identifier"
     )
 
     phone_number = models.CharField(
@@ -512,14 +499,6 @@ class Lead(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-        # indexes = [
-        #     models.Index(fields=['lead_id']),
-        #     models.Index(fields=['phone_number']),
-        #     models.Index(fields=['campaign', 'status']),
-        #     models.Index(fields=['segment', 'status']),
-        #     models.Index(fields=['status']),
-        # ]
-        # unique_together = [['campaign', 'phone_number']]
     
     def __str__(self):
         return f"{self.customer_name} ({self.phone_number})"

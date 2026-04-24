@@ -5,12 +5,12 @@ from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, conn, AGENT_PRI
 from django.utils import timezone
 from voice_orchestrator.celery import app
 import time
-from .utils import get_priority_queue_mapping, construct_queue_object, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive
+from .utils import get_priority_queue_mapping, construct_queue_object, is_user_registered, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive
 from collections import defaultdict
 from .models import Lead, Campaign
 from django.db.models import Case, When, IntegerField
 from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
-from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent
+from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent, remove_agent_from_cache
 from .udhaar_utils import store_campaigns_from_df
 import requests
 import pandas as pd
@@ -581,6 +581,12 @@ def validate_and_cleanup_agent_states():
         
         for agent_id, raw_agent_data in all_agent_states.items():
             try:
+                registered = is_user_registered(agent_id)
+                if not registered:
+                    remove_agent_from_cache(agent_id)
+                    logger.info(f"Removed unregistered agent {agent_id} from cache")
+                    continue #TODO send event to client to logout if agent is unregistered.
+
                 agent_data = json.loads(raw_agent_data)
                 
                 # Skip if agent is not busy

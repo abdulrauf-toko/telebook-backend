@@ -1,11 +1,18 @@
 import os
-import fcntl
 from lxml import etree
 from django.conf import settings
 from threading import Lock
 from voice_orchestrator.freeswitch import fs_manager
+import boto3
+from datetime import date
+import logging
+import csv
+import io
+from django.utils import timezone
+import datetime
 
 _xml_lock = Lock()
+logger = logging.getLogger(__name__)
 
 DEFAULT_XML = os.path.join(settings.FS_DIR, "default.xml")
 
@@ -97,3 +104,175 @@ def fs_delete_user(extension):
         tree.write(DEFAULT_XML, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
     fs_manager.api('reloadxml')
+
+
+def upload_call_recording(file_path: str, recording_date: date) -> str:
+    aws_access_key = settings.AWS_ACCESS_KEY_ID
+    aws_secret_key = settings.AWS_SECRET_ACCESS_KEY
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    region_name = settings.AWS_S3_REGION_NAME
+
+    file_name = os.path.basename(file_path)
+    s3_key = (
+        f"call-recordings/"
+        f"{recording_date.year}/"
+        f"{recording_date.month:02d}/"
+        f"{recording_date.day:02d}/"
+        f"{file_name}"
+    )
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=region_name,
+    )
+
+    s3_client.upload_file(
+        Filename=file_path,
+        Bucket=bucket_name,
+        Key=s3_key,
+    )
+
+    url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_key}"
+    return url
+
+def upload_call_logs(file_path: str):
+
+    s3_key = f"call-logs/call_logs.csv"
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+    s3_client.upload_file(
+        Filename=file_path,
+        Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+        Key=s3_key,
+    )    
+    url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/{s3_key}"
+    return url
+
+
+def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
+    from dialer.models import CallLog
+    try:
+        # Query all call logs for today
+        start_dt = timezone.make_aware(datetime.datetime.combine(start_date, datetime.time.min))
+        end_dt   = timezone.make_aware(datetime.datetime.combine(end_date,   datetime.time.max))
+
+        all_call_logs = CallLog.objects.filter(
+            initiated_at__gte=start_dt,
+            initiated_at__lte=end_dt,
+        ).select_related('agent', 'agent__user', 'lead', 'campaign').order_by('to_number', '-initiated_at')
+
+        print(all_call_logs)
+        
+        # Group by phone number and keep only the latest call
+        latest_calls_dict = {}
+        for call_log in all_call_logs:
+            if call_log.lead:
+                phone_number = call_log.lead.phone_number
+                if phone_number not in latest_calls_dict:
+                    latest_calls_dict[phone_number] = call_log
+        
+        call_logs = latest_calls_dict.values()
+        
+        # Define CSV headers
+        fieldnames = [
+            'call_id',
+            'callType',
+            'src',
+            'billsec',
+            'end',
+            'dukaan_account_id',
+            'formData',
+            'uniqueid',
+            'number',
+            'lead_id',
+            'disposition',
+            'agentName',
+            'duration',
+            'dialTime',
+            'segment',
+            'name',
+            "link"
+        ]
+        
+        # Set default output path if not provided
+        output_path = f"/home/pbx/call_logs_{start_date.strftime('%Y-%m-%d')}-{end_date.strftime('%Y-%m-%d')}.csv"
+        
+        # Create and write CSV file
+        with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            # Write each call log as a row
+            for call_log in call_logs:
+                # Get agent details
+                agent_name = None
+                agent_username = None
+                if call_log.agent and call_log.agent.telecard_username:
+                    agent_name = call_log.agent.user.get_full_name()
+                    agent_username = call_log.agent.telecard_username
+                
+                # Get campaign segment
+                segment = None  # default segment
+                lead_id = None
+                to_number = None
+                if call_log.lead:
+                    lead_id = call_log.lead.udhaar_lead_id
+                    to_number = call_log.lead.phone_number
+                    # dukaan_account_id = call_log.lead.dukaan_account_id
+                    segment = "everyday-campaign"  # default segment for all leads
+                
+                
+                # Format timestamps
+                dial_time = call_log.initiated_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.initiated_at else None
+                end_time = call_log.ended_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.ended_at else None
+                
+                # Map disposition (convert Django status to expected format)
+                disposition_map = {
+                    'answered': 'ANSWERED',
+                    'failed': 'FAILED',
+                    'no_answer': 'NO ANSWER',
+                    'busy': 'BUSY',
+                    'lose_race': 'BUSY',
+                    'user_not_registered': 'FAILED',
+                    'invalid': 'FAILED',
+                    'cancelled': 'FAILED',
+                }
+                disposition = disposition_map.get(call_log.status, call_log.status.upper())
+                
+                # Create row
+                row = {
+                    'call_id': call_log.call_id,
+                    'callType': call_log.call_direction.title() or '',
+                    'src': "2138722005",
+                    'billsec': call_log.talk_time_seconds,
+                    'end': end_time,
+                    'dukaan_account_id': None,
+                    'formData': None,
+                    'uniqueid': call_log.call_id,
+                    'number': to_number,
+                    'lead_id': lead_id,
+                    'disposition': disposition,
+                    'agentName': agent_username,
+                    'duration': call_log.duration_seconds,
+                    'dialTime': dial_time,
+                    'segment': segment,
+                    'name': agent_name,
+                    'link': call_log.recording_url if disposition == 'ANSWERED' else None,
+                }
+                
+                writer.writerow(row)
+        
+        logger.info(f"Successfully exported {len(latest_calls_dict)} unique phone numbers (call logs) to {output_path}")
+        return output_path
+        
+    except Exception as e:
+        logger.error(f"Error exporting call logs to CSV: {e}")
+        raise

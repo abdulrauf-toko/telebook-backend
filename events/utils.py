@@ -223,7 +223,7 @@ def logout_agent(agent_id) -> bool:
 
             # Disconnect the current call if agent is on a call
             if current_call_id:
-                disconnect_call(current_call_id, cause="AGENT_LOGOUT")
+                disconnect_call(current_call_id, cause="USER_NOT_REGISTERED")
                 logger.info(f"Disconnected call {current_call_id} for agent {agent_id} logout")
 
             # Remove agent from cache (state and queue)

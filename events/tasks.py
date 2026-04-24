@@ -6,12 +6,13 @@ Events are processed in the default queue (parallel processing).
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from voice_orchestrator.celery import app
 from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
 from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
+from voice_orchestrator.utils import export_today_call_logs_to_csv, upload_call_logs
 from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
 from websocket.utils import push_agent_event
@@ -171,6 +172,9 @@ def dispatch_event_handler(event) -> str:
 
 
             elif event_type == 'CHANNEL_HANGUP_COMPLETE':
+                if direction == 'inbound' and variable_call_id:
+                    return #ignoring inbound leg if call made from backend. 
+
                 hangup_cause = event.headers.get('variable_hangup_cause')
                 logger.info(f"Call ended with hangup cause: {hangup_cause}")
                 # if not variable_call_id:
@@ -179,6 +183,9 @@ def dispatch_event_handler(event) -> str:
 
 
                 call_details = remove_active_call(variable_call_id)
+                if not call_details:
+                    call_details = remove_active_call(variable_uuid) #for manual dials. 
+                
                 if not agent_id:
                     agent_id = call_details.get('agent_id', None) if call_details else None
 
@@ -275,7 +282,7 @@ def sync_to_db(self):
                 talk_time_seconds=billable_seconds
             )
 
-            if call_status in ['answered', 'no_answer', 'busy', 'invalid']:
+            if call_status in ['answered', 'no_answer', 'busy', 'invalid'] and lead_id:
                 if call_status == 'answered':
                     call_completed_lead_ids.append(lead_id)
                 elif call_status in ['no_answer', 'busy']:
@@ -287,9 +294,10 @@ def sync_to_db(self):
             
             logger.info(f"Call log created for call_id: {call_log.call_id}")
 
-        completed_leads = Lead.objects.filter(id__in=call_completed_lead_ids).update(status='completed', last_call_date=timezone.now())
-        not_picked_leads = Lead.objects.filter(id__in=call_not_picked_lead_ids).update(status='not_answered', last_call_date=timezone.now())
-        invalid_leads = Lead.objects.filter(id__in=invalid_lead_ids).update(status='invalid', last_call_date=timezone.now())
+        if call_completed_lead_ids or call_not_picked_lead_ids or invalid_lead_ids:
+            completed_leads = Lead.objects.filter(id__in=call_completed_lead_ids).update(status='completed', last_call_date=timezone.now())
+            not_picked_leads = Lead.objects.filter(id__in=call_not_picked_lead_ids).update(status='not_answered', last_call_date=timezone.now())
+            invalid_leads = Lead.objects.filter(id__in=invalid_lead_ids).update(status='invalid', last_call_date=timezone.now())
         conn.delete(SYNC_TO_DB_LOCK_REDIS_KEY)
         logger.info(f"Updated {completed_leads} leads to completed, {not_picked_leads} leads to not_answered, {invalid_leads} leads to invalid based on call outcomes.")
 
@@ -325,3 +333,25 @@ def waiting_room_task():
         except Exception as e:
             logger.exception(f"Error in waiting_room_task: {e}")
             time.sleep(3)
+
+@app.task
+def upload_call_logs_to_s3():
+    try:
+        today = date.today()
+        start_date = datetime.combine(today, datetime.min.time())
+        end_date = datetime.combine(today, datetime.max.time())
+        output_path = export_today_call_logs_to_csv(start_date, end_date)
+        if not output_path:
+            logger.error("Failed to export call logs to CSV. Aborting upload.")
+            return
+        url = upload_call_logs(output_path)
+        logger.info(f"Call logs successfully uploaded to S3. Accessible at: {url}")
+    except Exception as e:
+        logger.exception(f"Error in upload_call_logs_to_s3: {e}")
+
+@app.task
+def daily_ending_routine():
+    from dialer.utils import flush_redis_data, make_campaigns_inactive
+    flush_redis_data()
+    make_campaigns_inactive()
+    logger.info("Daily call ending routine completed: Redis data flushed and campaigns marked inactive.")
