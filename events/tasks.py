@@ -87,6 +87,7 @@ def dispatch_event_handler(event) -> str:
                 "recording_path": recording_path,
                 "initiated_at": timezone.now().isoformat()
             })
+            return
             
         agent_lock = None
         if agent_id:
@@ -106,7 +107,7 @@ def dispatch_event_handler(event) -> str:
                                 if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else: #if not idle, disconnect call and add lead back to queue
-                                    disconnect_call(variable_uuid, cause="USER_BUSY")
+                                    disconnect_call(variable_uuid, cause="LOSE_RACE")
                             else: #aquisition calls with no agents
                                 agent_id = get_next_available_sales_agent()
                                 if not agent_id:
@@ -114,7 +115,7 @@ def dispatch_event_handler(event) -> str:
                                 if agent_id:
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else:
-                                    disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
+                                    disconnect_call(variable_uuid, cause="LOSE_RACE")
                         else: #agent picked up first. priority or manual dial. 
                             if agent_id:
                                 connect_agent_to_call(agent_id, variable_uuid, variable_call_id, to_number) #make the call to number  
