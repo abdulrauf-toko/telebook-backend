@@ -392,11 +392,13 @@ def agent_dashboard(request):
             
             # Count unique phone numbers called
             unique_phone_count = 0
+            unique_phone_set = set()
             for call_log in call_logs:
                 if call_log.lead and call_log.lead.phone_number:
-                    unique_phone_count += 1
+                    unique_phone_set.add(call_log.lead.phone_number)
                 elif call_log.to_number:
-                    unique_phone_count += 1
+                    unique_phone_set.add(call_log.to_number)
+            unique_phone_count = len(unique_phone_set)
 
             
             # Get leads assigned to this agent on selected date
