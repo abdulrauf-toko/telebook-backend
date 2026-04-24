@@ -228,7 +228,9 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     to_number = call_log.lead.phone_number
                     # dukaan_account_id = call_log.lead.dukaan_account_id
                     segment = "everyday-campaign"  # default segment for all leads
-                
+                else:
+                    segment = 'rupin-emi-campaign'
+                    to_number = call_log.to_number
                 
                 # Format timestamps
                 dial_time = call_log.initiated_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.initiated_at else None
