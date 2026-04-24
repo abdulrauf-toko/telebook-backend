@@ -46,11 +46,13 @@ def upload_days_call_recordings_to_s3(start_date, end_date):
     call_logs = CallLog.objects.filter(
         initiated_at__gte=start_dt,
         initiated_at__lte=end_dt,
+        status='answered'
     ).exclude(recording_url__isnull=True).exclude(recording_url="")
 
     queued_count = 0
 
     print(f"Found {call_logs.count()} call logs with recordings between {start_date} and {end_date}. Starting upload...")
+    
     
     for log in call_logs.iterator():
         recording_path = _resolve_recording_path(log.recording_url)
