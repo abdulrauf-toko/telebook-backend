@@ -11,6 +11,10 @@ def store_campaigns_from_df(df):
 
     for (agent_username, segment), group_df in grouped:
         # Get or skip agent
+        if agent_username not in ['Rahim Qasim', "Sufiyan Shoukat", "anumzehra", "saadsaleem"]:
+            logger.warning("Skipping unknown agent: {}".format(agent_username))
+            continue
+        
         try:
             agent = Agent.objects.get(telecard_username=agent_username)
         except Agent.DoesNotExist:

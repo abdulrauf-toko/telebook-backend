@@ -359,6 +359,26 @@ def daily_ending_routine():
 
 
 @app.task
+def upload_days_call_recordings_to_s3_task():
+    from voice_orchestrator.scripts.upload_days_call_recordings_to_s3 import (
+        upload_days_call_recordings_to_s3,
+    )
+
+    try:
+        today = timezone.now().date()
+        queued_count = upload_days_call_recordings_to_s3(today, today)
+        logger.info(
+            "Queued/uploaded %s call recordings for %s.",
+            queued_count,
+            today.isoformat(),
+        )
+        return queued_count
+    except Exception as e:
+        logger.exception(f"Error running daily call recording upload task: {e}")
+        return 0
+
+
+@app.task
 def upload_call_recording_to_s3(log_obj, recording_path):
     try:
         if isinstance(log_obj, int):

@@ -39,5 +39,9 @@ app.conf.beat_schedule = {
     'end-routine-daily': {
         'task': 'events.tasks.daily_ending_routine',
         'schedule': crontab(hour=19, minute=45),
+    },
+    'upload-call-recordings-daily': {
+        'task': 'events.tasks.upload_days_call_recordings_to_s3_task',
+        'schedule': crontab(hour=17, minute=0),
     }
 }
