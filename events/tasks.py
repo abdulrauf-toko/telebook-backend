@@ -189,7 +189,7 @@ def dispatch_event_handler(event) -> str:
                 if not agent_id:
                     agent_id = call_details.get('agent_id', None) if call_details else None
 
-                if hangup_cause in ['NO_AVAILABLE_AGENT', 'USER_BUSY', 'LOSE_RACE', 'USER_NOT_REGISTERED'] and call_details: #our internal call
+                if hangup_cause in ['NO_AVAILABLE_AGENT', 'LOSE_RACE', 'USER_NOT_REGISTERED'] and call_details: #our internal call
                     if call_details and call_details.get('payload', None):
                         payload = call_details.get('payload')
                         add_lead_back_to_queue(payload.get('lead_id'))
@@ -344,7 +344,7 @@ def upload_call_logs_to_s3():
         if not output_path:
             logger.error("Failed to export call logs to CSV. Aborting upload.")
             return
-        url = upload_call_logs(output_path)
+        url = upload_call_logs(output_path, today)
         logger.info(f"Call logs successfully uploaded to S3. Accessible at: {url}")
     except Exception as e:
         logger.exception(f"Error in upload_call_logs_to_s3: {e}")

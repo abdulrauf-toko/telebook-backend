@@ -27,7 +27,7 @@ from dialer.models import CallLog
 SHIFT_START_HOUR = 6   # 06:00 UTC
 SHIFT_END_HOUR   = 14  # 14:00 UTC  (i.e. 14:00 is the deadline)
 LOG_OUT_GAP_THRESHOLD = timedelta(minutes=5)
-MIN_UNIQUE_PHONE_CALLS_PER_DAY = 50
+MIN_UNIQUE_PHONE_CALLS_PER_DAY = 100
 
 
 # ---------------------------------------------------------------------------

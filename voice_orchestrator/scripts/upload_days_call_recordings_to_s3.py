@@ -56,8 +56,8 @@ def upload_days_call_recordings_to_s3(start_date, end_date):
     
     for log in call_logs.iterator():
         recording_path = _resolve_recording_path(log.recording_url)
-        if recording_path and os.path.exists(recording_path):
-            upload_call_recording_to_s3(log.id, recording_path)
+        if recording_path and os.path.exists(str(recording_path)):
+            upload_call_recording_to_s3(log.id, str(recording_path))
             queued_count += 1
 
     return queued_count

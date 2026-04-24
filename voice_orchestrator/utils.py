@@ -139,9 +139,9 @@ def upload_call_recording(file_path: str, recording_date: date) -> str:
     url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_key}"
     return url
 
-def upload_call_logs(file_path: str):
+def upload_call_logs(file_path: str, today: date) -> str:
 
-    s3_key = f"call-logs/call_logs.csv"
+    s3_key = f"call-logs/call_logs_{today.strftime('%Y-%m-%d')}.csv"
 
     s3_client = boto3.client(
         's3',
@@ -170,8 +170,6 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
             initiated_at__gte=start_dt,
             initiated_at__lte=end_dt,
         ).select_related('agent', 'agent__user', 'lead', 'campaign').order_by('to_number', '-initiated_at')
-
-        print(all_call_logs)
         
         # Group by phone number and keep only the latest call
         latest_calls_dict = {}
@@ -248,6 +246,10 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     'cancelled': 'FAILED',
                 }
                 disposition = disposition_map.get(call_log.status, call_log.status.upper())
+
+                recording_url = call_log.recording_url if disposition == 'ANSWERED' else None
+                if recording_url and not recording_url.startswith(("http://", "https://")):
+                    recording_url = None  # Only include valid URLs
                 
                 # Create row
                 row = {
@@ -267,7 +269,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     'dialTime': dial_time,
                     'segment': segment,
                     'name': agent_name,
-                    'link': call_log.recording_url if disposition == 'ANSWERED' else None,
+                    'link': recording_url,
                 }
                 
                 writer.writerow(row)
@@ -281,12 +283,16 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
 
 
 def convert_wav_to_mp3(file_path: str) -> str:
+    if not file_path:
+        return None 
     ffmpeg_path = (
         shutil.which("ffmpeg")
     )
 
-    output_path = os.path.splitext(file_path)[0] + ".mp3"
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    # output_path = os.path.splitext(file_path)[0] + ".mp3"
+    # os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    output_path = f"/tmp/{file_name}.mp3"
 
     command = [
         ffmpeg_path,
@@ -312,5 +318,5 @@ def convert_wav_to_mp3(file_path: str) -> str:
         logger.error("Failed to convert wav to mp3: %s", exc.stderr)
         raise RuntimeError(f"ffmpeg conversion failed: {exc.stderr.strip()}") from exc
 
-    os.remove(file_path)
+    # os.remove(file_path)
     return output_path
