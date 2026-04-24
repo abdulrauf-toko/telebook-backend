@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
 from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from voice_orchestrator.utils import export_today_call_logs_to_csv, upload_call_logs
+from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, upload_call_logs, upload_call_recording
 from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
 from websocket.utils import push_agent_event
@@ -355,3 +355,25 @@ def daily_ending_routine():
     flush_redis_data()
     make_campaigns_inactive()
     logger.info("Daily call ending routine completed: Redis data flushed and campaigns marked inactive.")
+
+
+@app.task
+def upload_call_recording_to_s3(log_obj, recording_path):
+    try:
+        if isinstance(log_obj, int):
+            log_obj = CallLog.objects.get(id=log_obj)
+
+        mp3_path = convert_wav_to_mp3(recording_path)
+        recording_date = (
+            log_obj.initiated_at.date()
+            if log_obj.initiated_at
+            else timezone.now().date()
+        )
+        url = upload_call_recording(mp3_path, recording_date)
+        log_obj.recording_url = url
+        log_obj.save()
+        logger.info(f"Call recording successfully uploaded to S3. Accessible at: {url}")
+        return url
+    except Exception as e:
+        logger.exception(f"Error uploading call recording to S3: {e}")
+        return None

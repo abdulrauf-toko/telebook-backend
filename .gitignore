@@ -27,3 +27,4 @@ venv/
 .coverage
 voice_env/
 staticfiles/
+.codex

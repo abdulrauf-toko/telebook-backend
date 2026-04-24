@@ -10,6 +10,8 @@ import csv
 import io
 from django.utils import timezone
 import datetime
+import shutil
+import subprocess
 
 _xml_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -276,3 +278,39 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
     except Exception as e:
         logger.error(f"Error exporting call logs to CSV: {e}")
         raise
+
+
+def convert_wav_to_mp3(file_path: str) -> str:
+    ffmpeg_path = (
+        shutil.which("ffmpeg")
+    )
+
+    output_path = os.path.splitext(file_path)[0] + ".mp3"
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        file_path,
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        "64k",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.error("Failed to convert wav to mp3: %s", exc.stderr)
+        raise RuntimeError(f"ffmpeg conversion failed: {exc.stderr.strip()}") from exc
+
+    os.remove(file_path)
+    return output_path
