@@ -87,6 +87,7 @@ def dispatch_event_handler(event) -> str:
                 "recording_path": recording_path,
                 "initiated_at": timezone.now().isoformat()
             })
+            return
             
         agent_lock = None
         if agent_id:
@@ -106,7 +107,7 @@ def dispatch_event_handler(event) -> str:
                                 if is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=False):
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else: #if not idle, disconnect call and add lead back to queue
-                                    disconnect_call(variable_uuid, cause="USER_BUSY")
+                                    disconnect_call(variable_uuid, cause="LOSE_RACE")
                             else: #aquisition calls with no agents
                                 agent_id = get_next_available_sales_agent()
                                 if not agent_id:
@@ -114,7 +115,7 @@ def dispatch_event_handler(event) -> str:
                                 if agent_id:
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else:
-                                    disconnect_call(variable_uuid, cause="NO_AVAILABLE_AGENT")
+                                    disconnect_call(variable_uuid, cause="LOSE_RACE")
                         else: #agent picked up first. priority or manual dial. 
                             if agent_id:
                                 connect_agent_to_call(agent_id, variable_uuid, variable_call_id, to_number) #make the call to number  
@@ -355,6 +356,26 @@ def daily_ending_routine():
     flush_redis_data()
     make_campaigns_inactive()
     logger.info("Daily call ending routine completed: Redis data flushed and campaigns marked inactive.")
+
+
+@app.task
+def upload_days_call_recordings_to_s3_task():
+    from voice_orchestrator.scripts.upload_days_call_recordings_to_s3 import (
+        upload_days_call_recordings_to_s3,
+    )
+
+    try:
+        today = timezone.now().date()
+        queued_count = upload_days_call_recordings_to_s3(today, today)
+        logger.info(
+            "Queued/uploaded %s call recordings for %s.",
+            queued_count,
+            today.isoformat(),
+        )
+        return queued_count
+    except Exception as e:
+        logger.exception(f"Error running daily call recording upload task: {e}")
+        return 0
 
 
 @app.task
