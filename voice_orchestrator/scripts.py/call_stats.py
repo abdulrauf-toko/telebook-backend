@@ -27,6 +27,7 @@ from dialer.models import CallLog
 SHIFT_START_HOUR = 6   # 06:00 UTC
 SHIFT_END_HOUR   = 14  # 14:00 UTC  (i.e. 14:00 is the deadline)
 LOG_OUT_GAP_THRESHOLD = timedelta(minutes=5)
+MIN_UNIQUE_PHONE_CALLS_PER_DAY = 50
 
 
 # ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ def compute_agent_stats(queryset: QuerySet) -> list[dict]:
         .filter(initiated_at__isnull=False, agent_id__in=[4, 5])
         .values(
             "agent_id",
-            "agent__name",          # adjust to your Agent str field
+            "agent__user__first_name",          # adjust to your Agent str field
             "initiated_at",
             "status",
             "lead__phone_number",
@@ -97,7 +98,7 @@ def compute_agent_stats(queryset: QuerySet) -> list[dict]:
         if aid is None:
             continue
         by_agent[aid].append(row)
-        agent_names[aid] = row["agent__name"] or f"Agent {aid}"
+        agent_names[aid] = row["agent__user__first_name"] or f"Agent {aid}"
 
     results = []
 
@@ -124,6 +125,9 @@ def compute_agent_stats(queryset: QuerySet) -> list[dict]:
 
             # --- Unique phone numbers dialled ----------------------------
             unique_phones = {c["lead__phone_number"] for c in day_calls if c["lead__phone_number"]}
+            if len(unique_phones) < MIN_UNIQUE_PHONE_CALLS_PER_DAY:
+                continue
+
             calls_per_day.append(len(unique_phones))
 
             # --- Status breakdown ----------------------------------------
@@ -157,7 +161,10 @@ def compute_agent_stats(queryset: QuerySet) -> list[dict]:
             logged_out_per_day.append(logged_out_seconds / 60.0)  # → minutes
 
         # --- Aggregate across days -------------------------------------------
-        days = len(by_day)
+        days = len(calls_per_day)
+
+        if not days:
+            continue
 
         def _avg(lst):
             return sum(lst) / len(lst) if lst else 0.0
