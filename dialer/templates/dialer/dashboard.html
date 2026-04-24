@@ -532,7 +532,7 @@
                                 <tr>
                                     <td>{{ log.initiated_at_karachi|date:"H:i:s" }}</td>
                                     <td>{{ log.lead.customer_name|default:"N/A" }}</td>
-                                    <td class="phone-number">{{ log.lead.phone_number }}</td>
+                                    <td class="phone-number">{{ log.lead.phone_number|default:log.to_number }}</td>
                                     <td>
                                         <span class="status-badge {{ log.status }}">
                                             {{ log.get_status_display }}

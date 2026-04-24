@@ -391,7 +391,13 @@ def agent_dashboard(request):
                     log.initiated_at_karachi = None
             
             # Count unique phone numbers called
-            unique_phone_count = call_logs.values('lead__phone_number').distinct().count()
+            unique_phone_count = 0
+            for call_log in call_logs:
+                if call_log.lead and call_log.lead.phone_number:
+                    unique_phone_count += 1
+                elif call_log.to_number:
+                    unique_phone_count += 1
+
             
             # Get leads assigned to this agent on selected date
             leads_on_date = Lead.objects.filter(
