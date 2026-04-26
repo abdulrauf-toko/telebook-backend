@@ -69,9 +69,7 @@ def dispatch_event_handler(event) -> str:
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
         to_number = event.headers.get("variable_sip_h_X-to_number", None)
-        a = event.headers.get("Caller-Destination-Number")
-        b = event.headers.get("variable_destination_number")
-        logger.info(f"Received event ========>: {event_type}: direction={direction}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, Caller-Destination-Number={a}, variable_destination_number={b}, agent_id={agent_id}, auto_bridge={auto_bridge}, to_number={to_number}")
+        logger.info(f"Received event ========>: {event_type}: direction={direction}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, agent_id={agent_id}, auto_bridge={auto_bridge}, to_number={to_number}")
         if event_type == "CHANNEL_EXECUTE":
             app = event.headers.get("variable_current_application")  # or variable_current_application
             if app != "record_session":
@@ -85,6 +83,7 @@ def dispatch_event_handler(event) -> str:
                 add_active_call_in_cache(variable_uuid, {
                 "agent_id": None,
                 "payload": None,
+                "phone_number": event.headers.get("Caller-Destination-Number"),
                 "call_uuid": variable_uuid,
                 "recording_path": recording_path,
                 "initiated_at": timezone.now().isoformat()
@@ -195,7 +194,7 @@ def dispatch_event_handler(event) -> str:
                 if not agent_id:
                     agent_id = call_details.get('agent_id', None) if call_details else None
 
-                if hangup_cause in ['NO_AVAILABLE_AGENT', 'LOSE_RACE', 'USER_NOT_REGISTERED'] and call_details: #our internal call
+                if hangup_cause in ['LOSE_RACE', 'USER_NOT_REGISTERED'] and call_details: #our internal call
                     if call_details and call_details.get('payload', None):
                         payload = call_details.get('payload')
                         add_lead_back_to_queue(payload.get('lead_id'))

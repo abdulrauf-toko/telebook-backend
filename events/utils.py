@@ -427,8 +427,9 @@ def call_ending_routine(call_details, event, direction):
     call_details["ended_at"] = int(event.headers.get("Caller-Channel-Hangup-Time")) if event.headers.get("Caller-Channel-Hangup-Time") else int(time.time())
     call_details["disconnect_reason"] = event.headers.get("Hangup-Cause")
     call_details["duration_seconds"] = int(event.headers.get("variable_duration"))
-    call_details["billable_seconds"] = int(event.headers.get("variable_billsec", 0))    
-    call_details["phone_number"] = event.headers.get("Caller-Destination-Number") or event.headers.get("variable_destination_number")    
+    call_details["billable_seconds"] = int(event.headers.get("variable_billsec", 0))
+    if not call_details.get("phone_number", None):
+        call_details["phone_number"] = event.headers.get("Caller-Destination-Number")    
     call_details['direction'] = direction
     add_call_to_completed_list(call_details)
     sync_to_db_wrapper()
