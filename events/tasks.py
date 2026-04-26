@@ -69,7 +69,9 @@ def dispatch_event_handler(event) -> str:
         auto_bridge = event.headers.get("variable_sip_h_X-auto_bridge", None)
         agent_id = event.headers.get("variable_sip_h_X-agent_id", None)
         to_number = event.headers.get("variable_sip_h_X-to_number", None)
-        logger.info(f"Received event ========>: {event_type}: direction={direction}, other_leg_uuid={other_leg_uuid}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, agent_id={agent_id}, to_number={to_number}")
+        a = event.headers.get("Caller-Destination-Number")
+        b = event.headers.get("variable_destination_number")
+        logger.info(f"Received event ========>: {event_type}: direction={direction}, variable_uuid={variable_uuid}, variable_call_id={variable_call_id}, Caller-Destination-Number={a}, variable_destination_number={b}, agent_id={agent_id}, auto_bridge={auto_bridge}, to_number={to_number}")
         if event_type == "CHANNEL_EXECUTE":
             app = event.headers.get("variable_current_application")  # or variable_current_application
             if app != "record_session":
@@ -120,7 +122,10 @@ def dispatch_event_handler(event) -> str:
                             if agent_id:
                                 connect_agent_to_call(agent_id, variable_uuid, variable_call_id, to_number) #make the call to number  
                     else:
-                        update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
+                        if variable_call_id:
+                            update_active_call_in_cache(variable_call_id, {"connected_at": time.time()})
+                        else:
+                            update_active_call_in_cache(variable_uuid, {"connected_at": time.time()})
                 else:
                     # this case is for inbound pick ups. Since IVR is handled by freeswtich, we only connect the agent at park event 
                     # TODO This branch is also when a call is made from softphone dialer
