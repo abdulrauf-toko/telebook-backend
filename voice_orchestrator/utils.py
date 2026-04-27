@@ -175,7 +175,6 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
         latest_calls_dict = {}
         for call_log in all_call_logs:
             if call_log.lead:
-                continue
                 phone_number = call_log.lead.phone_number
                 if phone_number not in latest_calls_dict:
                     latest_calls_dict[phone_number] = call_log

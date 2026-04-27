@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 DIALER_LOCK_KEY = 'dialer:execution_lock'
 AGENT_CALL_COUNT_KEY = 'agent:call_count:{agent_id}'
 AGENT_STATE_CACHE_KEY = 'agent_state:{agent_id}'
-DIALER_METRICS_KEY = 'dialer:metrics:latest'
 
 # ============================================================================
 # DIALER ORCHESTRATION - MAIN ENTRY POINT

@@ -389,6 +389,8 @@ def agent_dashboard(request):
                     log.initiated_at_karachi = log.initiated_at.astimezone(karachi_tz)
                 else:
                     log.initiated_at_karachi = None
+                log.call_uuid = log.call_id
+                log.call_recording_url = log.recording_url if log.status == 'answered' else None
             
             # Count unique phone numbers called
             unique_phone_count = 0
@@ -440,4 +442,3 @@ def agent_dashboard(request):
     
     return render(request, 'dialer/dashboard.html', context)
     
-

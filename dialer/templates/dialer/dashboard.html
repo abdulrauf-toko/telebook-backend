@@ -521,16 +521,19 @@
                         <thead>
                             <tr>
                                 <th>Time</th>
+                                <th>UUID</th>
                                 <th>Lead Name</th>
                                 <th>Phone Number</th>
                                 <th>Status</th>
                                 <th>Duration (sec)</th>
+                                <th>Recording</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for log in call_logs %}
                                 <tr>
                                     <td>{{ log.initiated_at_karachi|date:"H:i:s" }}</td>
+                                    <td class="phone-number">{{ log.call_uuid }}</td>
                                     <td>{{ log.lead.customer_name|default:"N/A" }}</td>
                                     <td class="phone-number">{{ log.lead.phone_number|default:log.to_number }}</td>
                                     <td>
@@ -543,6 +546,20 @@
                                             {{ log.duration_seconds }}
                                         {% else %}
                                             -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if log.call_recording_url %}
+                                            <a
+                                                href="{{ log.call_recording_url }}"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="btn"
+                                            >
+                                                Call Recording
+                                            </a>
+                                        {% else %}
+                                            <button type="button" class="btn" disabled>Call Recording</button>
                                         {% endif %}
                                     </td>
                                 </tr>

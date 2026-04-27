@@ -8,7 +8,7 @@ from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_t
 
 logger = logging.getLogger(__name__)
 
-FS_TO_DJANGO_STATUS = { #TODO
+FS_TO_DJANGO_STATUS = {
     # Answered
     'NORMAL_CLEARING': 'answered',
     
