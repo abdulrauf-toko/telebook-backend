@@ -1,7 +1,8 @@
 from collections import deque
 from voice_orchestrator.redis import AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, conn, LOCK_TIMEOUTS, SLEEP, SALES_AGENT_QUEUE_REDIS_KEY, \
       SUPPORT_AGENT_QUEUE_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, AGENT_EXTENSION_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, \
-      SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
+      SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, AQUISITION_AGENTS_REDIS_KEY, \
+      SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import orjson as json
 import logging
 import time
@@ -546,8 +547,33 @@ def get_disposition_mapping(disconnect_reason: str):
 
 def flush_redis_data():
     try:
-        conn.flushdb()
-        logger.info("Redis data flushed successfully")
+        keys_to_delete = [
+            AGENT_STATE_REDIS_KEY,
+            SUPPORT_AGENT_QUEUE_REDIS_KEY,
+            SALES_AGENT_QUEUE_REDIS_KEY,
+            SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY,
+            AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY,
+            AGENT_LEAD_MAPPING_REDIS_KEY,
+            ACTIVE_CALLS_REDIS_KEY,
+            COMPLETED_CALLS_REDIS_KEY,
+            AGENT_EXTENSION_MAPPING_REDIS_KEY,
+            SYNC_TO_DB_LOCK_REDIS_KEY,
+            AQUISITION_AGENTS_REDIS_KEY,
+            SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY,
+            SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY,
+        ]
+        key_prefixes_to_delete = [
+            AGENT_STATE_LOCK_REDIS_KEY,
+            ACTIVE_CALL_LOCK_REDIS_KEY,
+        ]
+
+        deleted_count = conn.delete(*keys_to_delete)
+
+        for key_prefix in key_prefixes_to_delete:
+            for key in conn.scan_iter(f"{key_prefix}*"):
+                deleted_count += conn.delete(key)
+
+        logger.info("Redis dialer data cleared successfully. Deleted %s keys", deleted_count)
     except Exception as e:
         logger.error(f"Error flushing Redis data: {e}")
 

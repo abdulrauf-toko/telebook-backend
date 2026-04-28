@@ -5,6 +5,7 @@ from datetime import datetime
 import time
 from voice_orchestrator.freeswitch import fs_manager
 from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_to_queue, get_agent_extension, get_agent_team, add_sales_agent_to_queue, add_support_agent_to_queue
+from .models import AgentLogs, Agent
 
 logger = logging.getLogger(__name__)
 
@@ -484,3 +485,16 @@ def fs_timestamp_to_datetime(ts):
     elif ts > 1e12:      # milliseconds (13 digits)
         ts = ts / 1_000
     return datetime.fromtimestamp(ts)
+
+
+def log_agent_authentication_action(agent_id, action):
+    if action not in dict(AgentLogs.ACTION_ENUM):
+        return None
+
+    if not Agent.objects.filter(id=agent_id).exists():
+        return None
+
+    return AgentLogs.objects.create(
+        agent_id=agent_id,
+        action=action,
+    )

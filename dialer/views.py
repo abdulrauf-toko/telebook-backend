@@ -9,7 +9,7 @@ import orjson as json
 import logging
 from datetime import date, datetime, timedelta
 import pytz
-from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
+from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache, log_agent_authentication_action
 from django.contrib.auth.decorators import login_required
 
 from django.contrib.auth import authenticate, login, logout
@@ -42,6 +42,7 @@ def agent_login(request):
                 group = user.groups.first()
                 team = group.name
                 mark_agent_logged_in_cache(str(agent.id), team)
+                log_agent_authentication_action(agent.id, 'login')
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
                 
@@ -69,6 +70,7 @@ def logout_agent_api(request):
         result = logout_agent(agent_id)
 
         logout(request)
+        log_agent_authentication_action(agent.id, 'logout')
 
         if result:
             return JsonResponse({'status': 'success', 'agent_id': agent_id})

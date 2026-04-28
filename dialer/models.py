@@ -285,24 +285,6 @@ class Campaign(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Statistics
-    # called_leads = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Leads that have been dialed"
-    # )
-    # completed_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Successfully completed calls"
-    # )
-    # failed_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Failed call attempts"
-    # )
-    # no_answer_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Calls with no answer"
-    # )
-    
     # Metadata
     metadata = models.JSONField(
         default=dict,
@@ -312,12 +294,6 @@ class Campaign(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-        # indexes = [
-        #     models.Index(fields=['campaign_id']),
-        #     models.Index(fields=['agent', 'status']),
-        #     models.Index(fields=['segment', 'status']),
-        #     models.Index(fields=['status', 'created_at']),
-        # ]
         unique_together = [['agent', 'segment', 'created_at']]
     
     def __str__(self):
@@ -353,6 +329,13 @@ class Lead(models.Model):
         help_text="Customer phone number (normalized, e.g., 923001234567)"
     )
     
+    emi_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Unique EMI lead identifier (from Udhaar)"
+    )
+
     # Customer information
     customer_name = models.CharField(
         max_length=255,

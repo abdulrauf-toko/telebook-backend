@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_XML = os.path.join(settings.FS_DIR, "default.xml")
 
+def normalize_phone_number(phone_number):
+    if phone_number is None:
+        return None
+
+    normalized = str(phone_number).strip()
+    for character in (' ', '-', '(', ')'):
+        normalized = normalized.replace(character, '')
+
+    if normalized and not normalized.startswith('0'):
+        normalized = f'0{normalized}'
+
+    return normalized
+
+
 def fs_create_user(extension, password, group=None):
     # 1. Write the user XML file
     user_xml = f"""<include>
