@@ -12,6 +12,7 @@ from django.utils import timezone
 import datetime
 import shutil
 import subprocess
+from urllib.parse import unquote, urlparse
 
 _xml_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -138,6 +139,27 @@ def upload_call_recording(file_path: str, recording_date: date) -> str:
 
     url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_key}"
     return url
+
+
+def generate_presigned_s3_url(file_url: str, expires_in: int = 3600) -> str:
+    parsed_url = urlparse(file_url)
+    s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+    return s3_client.generate_presigned_url(
+        'get_object',
+        Params={
+            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+            'Key': s3_key,
+        },
+        ExpiresIn=expires_in,
+    )
 
 def upload_call_logs(file_path: str, today: date) -> str:
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Dashboard</title>
+    <title>All Call Logs Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -23,90 +23,18 @@
             margin: 0 auto;
         }
 
-        /* Login Form Styles */
-        .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-        .login-card {
+        .dashboard-header,
+        .date-filter-section,
+        .stat-card,
+        .call-logs-section {
             background: white;
             border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .login-card h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #333;
-            font-size: 28px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 600;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .error-message {
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            padding: 12px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        /* Dashboard Styles */
-        .dashboard-header {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .dashboard-header {
+            padding: 30px;
+            margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -119,47 +47,20 @@
 
         .dashboard-header .agent-info {
             text-align: right;
-        }
-
-        .dashboard-header .agent-name {
-            font-size: 18px;
             color: #667eea;
             font-weight: 600;
         }
 
-        .dashboard-header .agent-extension {
-            font-size: 14px;
-            color: #999;
-        }
-
-        .change-user-btn {
-            margin-top: 10px;
-            padding: 8px 16px;
-            background: #f0f0f0;
-            color: #333;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .change-user-btn:hover {
-            background: #e0e0e0;
-        }
-
         .date-filter-section {
-            background: white;
             padding: 20px;
-            border-radius: 10px;
             margin-bottom: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: flex-end;
-            gap: 15px;
         }
 
-        .date-filter-group {
-            flex: 1;
+        .date-filter-form {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+            gap: 15px;
+            align-items: end;
         }
 
         .date-filter-group label {
@@ -184,7 +85,8 @@
             border-color: #667eea;
         }
 
-        .date-filter-btn {
+        .date-filter-btn,
+        .btn {
             padding: 10px 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -192,15 +94,26 @@
             border-radius: 5px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
         }
 
-        .date-filter-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        .btn[disabled] {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
-        /* Stats Grid */
+        .error-message {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -209,10 +122,7 @@
         }
 
         .stat-card {
-            background: white;
             padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
             border-left: 5px solid #667eea;
             transition: transform 0.3s, box-shadow 0.3s;
         }
@@ -249,12 +159,8 @@
             color: #333;
         }
 
-        /* Call Logs Table */
         .call-logs-section {
-            background: white;
-            border-radius: 10px;
             padding: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
 
         .call-logs-section h2 {
@@ -273,6 +179,10 @@
             height: 24px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 2px;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
         }
 
         .call-logs-table {
@@ -301,10 +211,6 @@
             color: #333;
         }
 
-        .call-logs-table tbody tr {
-            transition: background 0.2s;
-        }
-
         .call-logs-table tbody tr:hover {
             background: #f9f9f9;
         }
@@ -328,7 +234,7 @@
             color: #721c24;
         }
 
-        .status-badge.no-answer {
+        .status-badge.no_answer {
             background: #fff3cd;
             color: #856404;
         }
@@ -359,23 +265,9 @@
             color: #764ba2;
         }
 
-        .no-logs-message {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-            font-size: 16px;
-        }
-
         .empty-state {
             text-align: center;
             padding: 40px 20px;
-        }
-
-        .empty-state svg {
-            width: 60px;
-            height: 60px;
-            margin-bottom: 20px;
-            color: #ddd;
         }
 
         .empty-state p {
@@ -383,140 +275,87 @@
             font-size: 16px;
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
             .dashboard-header {
                 flex-direction: column;
                 text-align: center;
+                gap: 10px;
             }
 
             .dashboard-header .agent-info {
                 text-align: center;
-                margin-top: 15px;
             }
 
-            .stats-grid {
+            .date-filter-form {
                 grid-template-columns: 1fr;
-            }
-
-            .date-filter-section {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .date-filter-group {
-                flex: 1;
-            }
-
-            .date-filter-group form {
-                flex-direction: column !important;
-            }
-
-            .date-filter-group input {
-                margin-bottom: 10px;
             }
 
             .date-filter-btn {
                 width: 100%;
-            }
-
-            .call-logs-table {
-                font-size: 14px;
-            }
-
-            .call-logs-table th,
-            .call-logs-table td {
-                padding: 10px 5px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        {% if not agent %}
-            <!-- Login Form -->
-            <div class="login-container">
-                <div class="login-card">
-                    <h1>📞 Agent Dashboard</h1>
-                    {% if error_message %}
-                        <div class="error-message">{{ error_message }}</div>
-                    {% endif %}
-                    <form method="GET" action="">
-                        <div class="form-group">
-                            <label for="username">Username</label>
-                            <input 
-                                type="text" 
-                                id="username" 
-                                name="username" 
-                                placeholder="Enter your username"
-                                required
-                                autofocus
-                            />
-                        </div>
-                        <button type="submit" class="btn">View Dashboard</button>
-                    </form>
-                </div>
-            </div>
-        {% else %}
-            <!-- Dashboard Content -->
-            <div class="dashboard-header">
-                <h1>📊 Agent Dashboard</h1>
-                <div class="agent-info">
-                    <div class="agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</div>
-                    <div class="agent-extension">Extension: {{ agent.extension }}</div>
-                    <form method="GET" action="" style="margin-top: 10px;">
-                        <button type="submit" class="change-user-btn">Switch User</button>
-                    </form>
-                </div>
-            </div>
+        <div class="dashboard-header">
+            <h1>All Call Logs Dashboard</h1>
+            <div class="agent-info">Pakistan Time</div>
+        </div>
 
-            <!-- Date Filter Section -->
-            <div class="date-filter-section">
+        {% if error_message %}
+            <div class="error-message">{{ error_message }}</div>
+        {% endif %}
+
+        <div class="date-filter-section">
+            <form method="GET" action="" class="date-filter-form">
                 <div class="date-filter-group">
-                    <label for="date_filter">📅 Select Date</label>
-                    <form method="GET" action="" style="display: flex; gap: 10px; align-items: flex-end;">
-                        <input type="hidden" name="username" value="{{ username }}">
-                        <input 
-                            type="date" 
-                            id="date_filter" 
-                            name="date_filter" 
-                            value="{{ selected_date }}"
-                            style="flex: 1;"
-                        />
-                        <button type="submit" class="date-filter-btn">Filter</button>
-                    </form>
+                    <label for="start_date">Start Date</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}" required>
                 </div>
-            </div>
+                <div class="date-filter-group">
+                    <label for="start_time">Start Time</label>
+                    <input type="time" id="start_time" name="start_time" value="{{ start_time }}" required>
+                </div>
+                <div class="date-filter-group">
+                    <label for="end_date">End Date</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}" required>
+                </div>
+                <div class="date-filter-group">
+                    <label for="end_time">End Time</label>
+                    <input type="time" id="end_time" name="end_time" value="{{ end_time }}" required>
+                </div>
+                <button type="submit" class="date-filter-btn">Filter</button>
+            </form>
+        </div>
 
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">Unique Phone Numbers Called</div>
-                    <div class="stat-value">{{ unique_phone_count }}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Leads Today</div>
-                    <div class="stat-value">{{ today_leads_count }}</div>
-                </div>
-                <div class="stat-card answered">
-                    <div class="stat-label">✓ Answered</div>
-                    <div class="stat-value">{{ stats.answered }}</div>
-                </div>
-                <div class="stat-card failed">
-                    <div class="stat-label">📞 Busy</div>
-                    <div class="stat-value">{{ stats.busy }}</div>
-                </div>
-                <div class="stat-card no-answer">
-                    <div class="stat-label">⏱ No Answer</div>
-                    <div class="stat-value">{{ stats.no_answer }}</div>
-                </div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Unique Phone Numbers Called</div>
+                <div class="stat-value">{{ unique_phone_count }}</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Calls</div>
+                <div class="stat-value">{{ stats.total_calls }}</div>
+            </div>
+            <div class="stat-card answered">
+                <div class="stat-label">Answered</div>
+                <div class="stat-value">{{ stats.answered }}</div>
+            </div>
+            <div class="stat-card failed">
+                <div class="stat-label">Busy</div>
+                <div class="stat-value">{{ stats.busy }}</div>
+            </div>
+            <div class="stat-card no-answer">
+                <div class="stat-label">No Answer</div>
+                <div class="stat-value">{{ stats.no_answer }}</div>
+            </div>
+        </div>
 
-            <!-- Call Logs Section -->
-            <div class="call-logs-section">
-                <h2>Call Logs - {{ selected_date|date:"D, M d, Y" }}</h2>
-                
-                {% if call_logs %}
+        <div class="call-logs-section">
+            <h2>Call Logs - {{ start_date }} {{ start_time }} to {{ end_date }} {{ end_time }}</h2>
+            {% if call_logs %}
+                <div class="table-wrap">
                     <table class="call-logs-table">
                         <thead>
                             <tr>
@@ -532,7 +371,7 @@
                         <tbody>
                             {% for log in call_logs %}
                                 <tr>
-                                    <td>{{ log.initiated_at_karachi|date:"H:i:s" }}</td>
+                                    <td>{{ log.initiated_at_karachi|date:"Y-m-d H:i:s" }}</td>
                                     <td class="phone-number">{{ log.call_uuid }}</td>
                                     <td>{{ log.lead.customer_name|default:"N/A" }}</td>
                                     <td class="phone-number">{{ log.lead.phone_number|default:log.to_number }}</td>
@@ -565,13 +404,13 @@
                             {% endfor %}
                         </tbody>
                     </table>
-                {% else %}
-                    <div class="empty-state">
-                        <p>No call logs for today yet. Start making calls!</p>
-                    </div>
-                {% endif %}
-            </div>
-        {% endif %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>No call logs found for this date/time range.</p>
+                </div>
+            {% endif %}
+        </div>
     </div>
     <script>
         document.addEventListener('click', async function (event) {
