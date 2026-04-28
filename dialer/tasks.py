@@ -22,7 +22,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 DIALER_LOCK_KEY = 'dialer:execution_lock'
-UDHAAR_BASE_URL = "https://udhaar-api.oscar.pk/marketplace/telebook"
+UDHAAR_BASE_URL = "https://udhaar-api.oscar.pk/"
 
 # ============================================================================
 # DIALER ORCHESTRATION - MAIN ENTRY POINT
@@ -697,7 +697,7 @@ def fetch_and_store_telebook_campaign(self):
 
 @app.task(bind=True)
 def fetch_and_store_emi_campaigns(self):
-    api_url = f"{UDHAAR_BASE_URL}/emi_campaigns/"
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-campaign-users/today/"
     headers = {"X-API-Key": settings.API_KEY}
 
     try:
