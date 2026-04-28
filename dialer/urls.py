@@ -11,6 +11,7 @@ urlpatterns = [
     path('agent/login/', views.agent_login, name='agent-login'),
     path('agent/logout/', views.logout_agent_api, name='agent-logout'),
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
+    path('form-submission/', views.formdata_submission, name='form-submission'),
     
     # Call management endpoints
     path('call/', views.initiate_call, name='initiate-call'),

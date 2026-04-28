@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.shortcuts import render
 import orjson as json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 import pytz
 from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
 from django.contrib.auth.decorators import login_required
@@ -16,7 +16,8 @@ from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from .models import Agent, Lead, CallLog
-from dialer.utils import build_originate_command, originate_call, get_disposition_mapping
+from dialer.utils import build_originate_command, get_disposition_mapping
+from dialer.tasks import formdata_scheduled_task
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def agent_login(request):
             username = data.get('username')
             password = data.get('password')
         except Exception as e:
-            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+            return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
         
         user = authenticate(request, username=username, password=password)
         if user is not None:
@@ -43,13 +44,13 @@ def agent_login(request):
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
                 
-                return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents)})
+                return JsonResponse({'success': True, 'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents)})
             except Agent.DoesNotExist:
-                return JsonResponse({'error': 'Agent not found'}, status=404)
+                return JsonResponse({'success': False, 'message': 'Invalid credentials'}, status=404)
         else:
-            return JsonResponse({'error': 'Invalid credentials'}, status=401)
+            return JsonResponse({'success': False, 'message': 'Invalid credentials'}, status=401)
 
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
+    return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
 
 @login_required 
 @csrf_exempt
@@ -442,3 +443,81 @@ def agent_dashboard(request):
     
     return render(request, 'dialer/dashboard.html', context)
     
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def formdata_submission(request):
+    data = json.loads(request.body)
+    phone_number = data.get('followup_phone_number')
+    date_value = data.get('followup_date')
+    time_value = data.get('followup_time')
+    comment = data.get('followup_comment')
+    
+    lead = Lead.objects.filter(phone_number=phone_number).order_by('-created_at').first()
+    if not lead:
+        logger.error(f'Error in Form data Submission: no lead with phone {phone_number} exists')
+        return JsonResponse({'success': False, 'message': 'Lead not found'}, status=404)
+
+    try:
+        scheduled_date = datetime.strptime(date_value, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return JsonResponse({
+            'success': False,
+            'message': 'date is required in YYYY-MM-DD format'
+        }, status=400)
+
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+    today_pk = now_pk.date()
+
+    fire_task = False
+    if scheduled_date == today_pk:
+        fire_task = True
+
+    if scheduled_date < today_pk:
+        return JsonResponse({
+            'success': False,
+            'message': 'date cannot be in the past'
+        }, status=400)
+
+    if time_value:
+        try:
+            scheduled_time = datetime.strptime(time_value, '%H:%M').time()
+        except (TypeError, ValueError):
+            return JsonResponse({
+                'success': False,
+                'message': 'time must be in HH:MM format'
+            }, status=400)
+
+        scheduled_pk = karachi_tz.localize(datetime.combine(scheduled_date, scheduled_time))
+        if scheduled_date == today_pk and scheduled_pk <= now_pk:
+            return JsonResponse({
+                'success': False,
+                'message': 'time cannot be in the past for today'
+            }, status=400)
+    else:
+        if scheduled_date == today_pk:
+            return JsonResponse({
+                'success': False,
+                'message': 'time is required for current date'
+            }, status=400)
+        scheduled_pk = now_pk + timedelta(hours=2)
+        scheduled_date = scheduled_pk.date()
+
+    scheduled_utc = scheduled_pk.astimezone(pytz.utc)
+
+    lead.follow_up_date = scheduled_date
+    lead.follow_up_time = scheduled_pk.time()
+    lead.comment = comment
+    lead.save()
+
+    if fire_task:
+        task = formdata_scheduled_task.apply_async(
+            args=[lead.id],
+            eta=scheduled_utc,
+        )
+
+
+    return JsonResponse({
+        'success': True
+    })

@@ -5,7 +5,7 @@ from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, conn, AGENT_PRI
 from django.utils import timezone
 from voice_orchestrator.celery import app
 import time
-from .utils import get_priority_queue_mapping, construct_queue_object, is_user_registered, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive
+from .utils import get_priority_queue_mapping, construct_queue_object, is_user_registered, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive, add_to_priority_queue_mapping
 from collections import defaultdict
 from .models import Lead, Campaign
 from django.db.models import Case, When, IntegerField
@@ -638,7 +638,7 @@ def validate_and_cleanup_agent_states():
         logger.exception(f"Error in validate_and_cleanup_agent_states: {e}")
 
 @app.task(bind=True)
-def fetch_and_store_telebook_campaign(self):
+def fetch_and_store_telebook_campaign(self):    
     MAX_TRIES = 10
     POLL_INTERVAL = 30  # seconds
     POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
@@ -703,3 +703,9 @@ def process_telebook_csv(df_json):
 def day_end_routine():
     make_campaigns_inactive()
     flush_redis_data()
+
+@app.task(bind=True)
+def formdata_scheduled_task(self, lead_id):
+    lead = Lead.objects.get(id=lead_id)
+    queue_object = construct_queue_object(lead.campaign, lead)
+    add_to_priority_queue_mapping(lead.campaign.agent_id, queue_object)

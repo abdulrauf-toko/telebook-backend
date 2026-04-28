@@ -324,23 +324,7 @@ class Campaign(models.Model):
         return f"{self.campaign_id} ({self.segment} - {self.status})"
 
 
-class Lead(models.Model):
-    """
-    Lead model representing a customer to be called (from Udhaar marketplace).
-    
-    Stores lead/customer information imported from CSV uploads.
-    Replaces Telecard's call queue items.
-    """
-    
-    # SEGMENT_CHOICES = [
-    #     ('follow_up', 'Follow Up'),
-    #     ('active', 'Active'),
-    #     ('growth', 'Growth'),
-    #     ('active_churn', 'Active Churn'),
-    #     ('growth_churn', 'Growth Churn'),
-    #     ('acquisition', 'Acquisition'),
-    # ] since it's in campaigns
-    
+class Lead(models.Model):   
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('in_queue', 'In Queue'),
@@ -348,13 +332,7 @@ class Lead(models.Model):
         ('completed', 'Completed'),
         ('failed', 'Failed'),
         ('invalid', 'Invalid'),
-    ]
-    
-    # Unique identifiers
-    # id = models.IntegerField(
-    #     primary_key=True,
-    #     db_index=True,
-    # ) 
+    ] 
 
     udhaar_lead_id = models.IntegerField(
         null=True,
@@ -462,7 +440,9 @@ class Lead(models.Model):
         default=False
     )
 
-
+    comment = models.CharField(max_length=255, null=True, blank=True)
+    follow_up_date = models.DateField(null=True, blank=True)
+    follow_up_time = models.TimeField(null=True, blank=True)
     
     # Metadata
     metadata = models.JSONField(
@@ -470,28 +450,6 @@ class Lead(models.Model):
         blank=True,
         help_text="Additional lead context (Active shop, personal use, category, etc.)"
     )
-
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
     
     # Timing
     created_at = models.DateTimeField(auto_now_add=True)

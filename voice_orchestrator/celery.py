@@ -10,6 +10,7 @@ This ensures Celery starts when Django is imported.
 import os
 from celery import Celery
 from celery.schedules import crontab
+from django.conf import settings
 
 # Set default Django settings
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'voice_orchestrator.settings')
@@ -23,7 +24,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
 
 # Celery Beat schedule
-app.conf.beat_schedule = {
+PROD_BEAT_SCHEDULE = {
     'daily-telebook-campaign': {
         'task': 'dialer.tasks.fetch_and_store_telebook_campaign',
         'schedule': crontab(hour=1, minute=0),
@@ -45,3 +46,5 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=17, minute=0),
     }
 }
+
+app.conf.beat_schedule = PROD_BEAT_SCHEDULE if settings.ENV == 'PROD' else {}

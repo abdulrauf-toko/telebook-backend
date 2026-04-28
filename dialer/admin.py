@@ -53,7 +53,7 @@ class LeadAdmin(admin.ModelAdmin):
     # readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         ('Basic Information', {
-            'fields': ('udhaar_lead_id', 'customer_name', 'phone_number', 'city')
+            'fields': ('udhaar_lead_id', 'customer_name', 'phone_number', 'city', 'follow_up_date', 'follow_up_time', 'comment')
         }),
         ('Campaign & Status', {
             'fields': ('campaign', 'status', 'attempt_count', 'max_attempts', 'call_completed', 'lead_contacted')
