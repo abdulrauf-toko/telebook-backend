@@ -15,8 +15,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
-from .models import Agent, Lead, CallLog
-from dialer.utils import build_originate_command, originate_call, get_disposition_mapping
+from .models import Agent, Lead, CallLog, Campaign
+from dialer.utils import build_originate_command, originate_call, get_disposition_mapping, active_campaigns
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,51 @@ def agent_login(request):
                 mark_agent_logged_in_cache(str(agent.id), team)
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
+                campaigns = active_campaigns(agent)
+
+                campaigns = [{
+                'id': 1,
+                'segment': "growth",
+                'count': 150,
+                'status': 'active',
+                "active": False
+            },
+            {
+                'id': 2,
+                'segment': "Acquisition",
+                'count': 150,
+                "active": True
+            },
+            {
+                'id': 2,
+                'segment': "Acquisition",
+                'count': 150,
+                'status': 'active',
+                "active": True
+            },
+            {
+                'id': 2,
+                'segment': "Acquisition",
+                'count': 150,
+                'status': 'active',
+                "active": True
+            },
+            {
+                'id': 2,
+                'segment': "Acquisition",
+                'count': 150,
+                'status': 'active',
+                "active": True
+            },
+            {
+                'id': 2,
+                'segment': "Acquisition",
+                'count': 1230,
+                'status': 'active',
+                "active": True
+            }]
                 
-                return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents)})
+                return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents), "campaigns": campaigns})
             except Agent.DoesNotExist:
                 return JsonResponse({'error': 'Agent not found'}, status=404)
         else:

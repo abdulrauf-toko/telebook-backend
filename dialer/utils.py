@@ -555,3 +555,31 @@ def make_campaigns_inactive():
     campaigns = Campaign.objects.filter(active=True)
     count = campaigns.update(active=False)
     logger.info(f"Marked {count} campaigns as inactive")
+
+
+def active_campaigns(agent):
+    try:
+        
+        campaigns = Campaign.objects.filter(
+            agent=agent,
+            active=True,
+        ).order_by('-created_at')
+
+        response_list = []
+
+        for campaign in campaigns:
+            data = {
+                'id': campaign.id,
+                'campaign_id': campaign.campaign_id,
+                'segment': campaign.segment,
+                'count': campaign.leads.count()
+            }
+            if agent.selected_segment == campaign.segment:
+                data['active'] = True
+            else:
+                data['active'] = False
+            response_list.append(data)
+        
+        return response_list
+    except Exception as e:
+        logger.exception(f"Error fetching active campaigns: {e}")

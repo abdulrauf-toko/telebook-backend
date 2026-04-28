@@ -10,6 +10,7 @@ from . import views
 urlpatterns = [
     path('agent/login/', views.agent_login, name='agent-login'),
     path('agent/logout/', views.logout_agent_api, name='agent-logout'),
+    path('campaigns/active/', views.active_campaigns, name='active-campaigns'),
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
     
     # Call management endpoints

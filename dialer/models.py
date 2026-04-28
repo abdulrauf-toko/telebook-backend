@@ -45,6 +45,13 @@ class Agent(models.Model):
     udhaar_username = models.CharField(
         max_length=50, null=True, blank=True
     )
+
+    selected_segment = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Currently selected segment for campaign assignment (follow_up, active, growth, etc.)"
+    )
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -93,7 +100,7 @@ class Agent(models.Model):
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            self._sync_freeswitch_user(old_agent)
+            # self._sync_freeswitch_user(old_agent)
 
     def delete(self, *args, **kwargs):
         extension = self.extension
