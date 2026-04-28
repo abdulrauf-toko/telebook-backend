@@ -25,6 +25,12 @@ def store_campaigns_from_df(df):
         campaign_id = "{}-{}-{}".format(
             agent_username, segment, timezone.now().strftime("%Y%m%d")
         )
+        if segment == 'growth-churn':
+            segment = 'growth_churn'
+        
+        if segment == 'active-churn':
+            segment = 'active_churn'
+            
         campaign = Campaign.objects.create(
             agent=agent,
             segment=segment,
