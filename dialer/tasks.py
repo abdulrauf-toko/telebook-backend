@@ -454,7 +454,7 @@ def refill_queue(self):
                 #     new_queue[agent_id].append(queue_object)
                 new_queue[agent_id].append(queue_object)
 
-                if count >= 50:
+                if count >= 10:
                     break  # Limit to 50 leads per campaign to prevent overloading queue
 
         updated = Lead.objects.filter(
