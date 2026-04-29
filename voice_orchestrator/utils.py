@@ -13,7 +13,7 @@ import datetime
 import shutil
 import subprocess
 from urllib.parse import unquote, urlparse
-from dialer.udhaar_utils import UDHAAR_DISPOSITION_MAP
+
 
 _xml_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -198,6 +198,7 @@ def upload_call_logs(file_path: str, today: date) -> str:
 
 def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
     from dialer.models import CallLog
+    from dialer.udhaar_utils import UDHAAR_DISPOSITION_MAP
     try:
         # Query all call logs for today
         start_dt = timezone.make_aware(datetime.datetime.combine(start_date, datetime.time.min))
