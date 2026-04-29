@@ -226,6 +226,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
         # Define CSV headers
         fieldnames = [
             'call_id',
+            'emi_id'
             'callType',
             'src',
             'billsec',
@@ -265,11 +266,13 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 segment = None  # default segment
                 lead_id = None
                 to_number = None
+                emi_id = None
                 if call_log.lead:
                     lead_id = call_log.lead.udhaar_lead_id
                     to_number = call_log.lead.phone_number
+                    emi_id = call_log.lead.emi_id
                     # dukaan_account_id = call_log.lead.dukaan_account_id
-                    segment = "everyday-campaign"  # default segment for all leads
+                    segment = "rupin-emi-campaign"  #TODO MAKE IT DYNAMIC default segment for all leads
                 else:
                     segment = 'rupin-emi-campaign'
                     to_number = call_log.to_number
@@ -288,6 +291,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 # Create row
                 row = {
                     'call_id': call_log.call_id,
+                    'emi_id': emi_id,
                     'callType': call_log.call_direction.title() or '',
                     'src': "2138722005",
                     'billsec': call_log.talk_time_seconds,
