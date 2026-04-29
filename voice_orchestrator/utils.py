@@ -227,7 +227,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
         # Define CSV headers
         fieldnames = [
             'call_id',
-            'emi_id'
+            'emi_id',
             'callType',
             'src',
             'billsec',
