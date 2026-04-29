@@ -639,7 +639,8 @@ def validate_and_cleanup_agent_states():
         logger.exception(f"Error in validate_and_cleanup_agent_states: {e}")
 
 @app.task(bind=True)
-def fetch_and_store_telebook_campaign(self):    
+def fetch_and_store_telebook_campaign(self):
+    return    
     MAX_TRIES = 10
     POLL_INTERVAL = 45  # seconds
     POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"

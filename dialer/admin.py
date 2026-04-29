@@ -24,7 +24,7 @@ class LeadInline(admin.TabularInline):
 class AgentAdmin(admin.ModelAdmin):
     list_display = ('id', 'is_active', 'created_at')
     list_filter = ('is_active', 'created_at')
-    inlines = [CallLogInline]
+    # inlines = [CallLogInline]
 
 # Admin for CallLog
 @admin.register(CallLog)

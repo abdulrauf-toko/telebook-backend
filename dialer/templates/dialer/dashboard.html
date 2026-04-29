@@ -548,19 +548,20 @@
                                             -
                                         {% endif %}
                                     </td>
-                                    <td>
-                                        {% if log.has_call_recording %}
-                                            <button
-                                                type="button"
-                                                class="btn"
-                                                data-recording-url="{% url 'get-call-recording' log.call_uuid %}"
-                                            >
-                                                View Recording
-                                            </button>
-                                        {% else %}
-                                            <button type="button" class="btn" disabled>View Recording</button>
-                                        {% endif %}
-                                    </td>
+                                                                        <td>
+    {% if log.has_call_recording %}
+    <button
+        type="button"
+        class="btn"
+        data-recording-url="/api/api/dialer/call-recordings/{{ log.call_uuid }}/"
+        onclick="openRecording(this)"
+    >
+        View Recording
+    </button>
+    {% else %}
+    <button type="button" class="btn" disabled>View Recording</button>
+    {% endif %}
+</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -600,6 +601,11 @@
                 button.textContent = originalText;
             }
         });
+
+        function openRecording(btn) {
+            const url = btn.getAttribute('data-recording-url');
+            window.open(url, '_blank');
+        }
     </script>
 </body>
 </html>

@@ -506,7 +506,7 @@ def build_originate_command(
                 call_string = f"sofia/internal/{extension}@{settings.SIP_IP}"
             else:
                 call_string = f"sofia/gateway/tokolab_trunk/{phone_number}"
-            # call_string = f"sofia/gateway/tokolab_trunk/03152526525"
+                # call_string = f"sofia/gateway/tokolab_trunk/03152526525"
         else:
             call_string = f"user/{phone_number}" 
 

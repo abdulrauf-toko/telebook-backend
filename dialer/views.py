@@ -324,6 +324,7 @@ def get_call_recording(request, uuid):
     try:
         # Get the call log
         try:
+            logger.info(uuid)
             call_log = CallLog.objects.get(call_id=uuid)
         except CallLog.DoesNotExist:
             return JsonResponse({
