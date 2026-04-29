@@ -498,3 +498,51 @@ def log_agent_authentication_action(agent_id, action):
         agent_id=agent_id,
         action=action,
     )
+
+
+def get_agent_login_durations(date_str):
+    """
+    Returns total logged-in seconds per agent for the given date (YYYY-MM-DD).
+    Pairs each login with the next logout; unpaired logins (still logged in) are
+    counted up to end-of-day. Returns {agent_id: total_seconds}.
+    """
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        raise ValueError("date_str must be in YYYY-MM-DD format")
+
+    logs = (
+        AgentLogs.objects
+        .filter(
+            created_at__date=target_date,
+            action__in=['login', 'logout'],
+        )
+        .order_by('agent_id', 'created_at')
+        .values('agent_id', 'action', 'created_at')
+    )
+
+    from django.utils import timezone as tz
+    end_of_day = tz.make_aware(
+        datetime.combine(target_date, datetime.max.time().replace(microsecond=0))
+    )
+
+    events_by_agent = {}
+    for entry in logs:
+        events_by_agent.setdefault(entry['agent_id'], []).append(entry)
+
+    result = {}
+    for agent_id, entries in events_by_agent.items():
+        total_seconds = 0
+        pending_login = None
+        for entry in entries:
+            if entry['action'] == 'login':
+                pending_login = entry['created_at']
+            elif entry['action'] == 'logout' and pending_login is not None:
+                total_seconds += (entry['created_at'] - pending_login).total_seconds()
+                pending_login = None
+        # Agent still logged in at end of day
+        if pending_login is not None:
+            total_seconds += (end_of_day - pending_login).total_seconds()
+        result[agent_id] = int(total_seconds)
+
+    return result

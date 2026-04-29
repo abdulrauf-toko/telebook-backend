@@ -46,16 +46,3 @@ class AgentLogs(models.Model):
     def __str__(self):
         agent_label = self.agent_id if self.agent_id else 'Unknown agent'
         return f"{agent_label} - {self.action} at {self.created_at}"
-
-
-def log_agent_authentication_action(agent_id, action):
-    if action not in dict(AgentLogs.ACTION_ENUM):
-        return None
-
-    if not Agent.objects.filter(id=agent_id).exists():
-        return None
-
-    return AgentLogs.objects.create(
-        agent_id=agent_id,
-        action=action,
-    )

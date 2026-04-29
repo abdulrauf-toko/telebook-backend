@@ -18,11 +18,11 @@ import requests
 import pandas as pd
 from io import StringIO
 from django.conf import settings
+from dialer.udhaar_utils import UDHAAR_BASE_URL
 
 logger = logging.getLogger(__name__)
 
 DIALER_LOCK_KEY = 'dialer:execution_lock'
-UDHAAR_BASE_URL = "https://udhaar-api.oscar.pk/"
 
 # ============================================================================
 # DIALER ORCHESTRATION - MAIN ENTRY POINT

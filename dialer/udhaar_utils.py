@@ -1,9 +1,23 @@
-from .models import Agent, Campaign, Lead
+from .models import Agent, Campaign, Lead, CallLog
 from django.utils import timezone
 import logging
 from voice_orchestrator.utils import normalize_phone_number
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+UDHAAR_DISPOSITION_MAP = {
+    'answered': 'ANSWERED',
+    'failed': 'FAILED',
+    'no_answer': 'NO ANSWER',
+    'busy': 'BUSY',
+    'lose_race': 'BUSY',
+    'user_not_registered': 'FAILED',
+    'invalid': 'FAILED',
+    'cancelled': 'FAILED',
+    }
+
+UDHAAR_BASE_URL = "https://udhaar-api.oscar.pk/"
 
 
 def _coerce_udhaar_lead_id(value):
@@ -175,3 +189,59 @@ def store_campaigns_from_csv(csv_path):
 
         Lead.objects.bulk_create(leads_to_create, ignore_conflicts=True)
         logger.info("Created {} leads for campaign {}".format(len(leads_to_create), campaign_id))
+
+
+def get_emi_call_logs(date):
+    
+    all_logs = (
+        CallLog.objects
+        .filter(initiated_at__date=date)
+        .select_related('agent', 'lead', 'lead__campaign')
+        .order_by('to_number', '-initiated_at')
+    )
+
+    # Group by phone number, preserving -initiated_at order (most recent first)
+    logs_by_number = defaultdict(list)
+    for log in all_logs:
+        logs_by_number[log.to_number].append(log)
+
+    # If any log for a number has LOSE_RACE or USER_NOT_REGISTERED, keep only the most recent
+    SKIP_REASONS = {'LOSE_RACE', 'USER_NOT_REGISTERED'}
+    filtered_logs = []
+    for logs in logs_by_number.values():
+        if len(logs) > 1 and any(log.disconnect_reason in SKIP_REASONS for log in logs):
+            filtered_logs.append(logs[0])
+        else:
+            filtered_logs.extend(logs)
+
+    # Batch-fetch the latest lead for phone numbers where no lead is attached
+    no_lead_phones = {log.to_number for log in filtered_logs if log.lead is None}
+    lead_by_phone = {}
+    if no_lead_phones:
+        leads_qs = (
+            Lead.objects
+            .filter(phone_number__in=no_lead_phones)
+            .select_related('campaign')
+            .order_by('phone_number', '-created_at')
+        )
+        for lead in leads_qs:
+            if lead.phone_number not in lead_by_phone:
+                lead_by_phone[lead.phone_number] = lead
+
+    data = {}
+    for log in filtered_logs:
+        lead = log.lead if log.lead is not None else lead_by_phone.get(log.to_number)
+
+        if lead is None or lead.campaign is None or lead.campaign.segment != 'other':
+            continue
+
+        if not lead.emi_id:
+            continue
+
+        data[str(lead.emi_id)] = {
+            'called_at': log.initiated_at.isoformat() if log.initiated_at else None,
+            'disposition': UDHAAR_DISPOSITION_MAP.get(log.status),
+        }
+
+    logger.info("get_emi_call_logs: built report for {} leads".format(len(data)))
+    return {'data': data}

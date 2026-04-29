@@ -44,6 +44,10 @@ PROD_BEAT_SCHEDULE = {
     'upload-call-recordings-daily': {
         'task': 'events.tasks.upload_days_call_recordings_to_s3_task',
         'schedule': crontab(hour=17, minute=0),
+    },
+    'post-emi-campaign-call-logs': {
+        'task': 'events.tasks.post_emi_call_logs',
+        'schedule': crontab(hour=0, minute=5),
     }
 }
 

@@ -13,6 +13,7 @@ import datetime
 import shutil
 import subprocess
 from urllib.parse import unquote, urlparse
+from dialer.udhaar_utils import UDHAAR_DISPOSITION_MAP
 
 _xml_lock = Lock()
 logger = logging.getLogger(__name__)
@@ -278,17 +279,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 end_time = call_log.ended_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.ended_at else None
                 
                 # Map disposition (convert Django status to expected format)
-                disposition_map = {
-                    'answered': 'ANSWERED',
-                    'failed': 'FAILED',
-                    'no_answer': 'NO ANSWER',
-                    'busy': 'BUSY',
-                    'lose_race': 'BUSY',
-                    'user_not_registered': 'FAILED',
-                    'invalid': 'FAILED',
-                    'cancelled': 'FAILED',
-                }
-                disposition = disposition_map.get(call_log.status, call_log.status.upper())
+                disposition = UDHAAR_DISPOSITION_MAP.get(call_log.status, call_log.status.upper())
 
                 recording_url = call_log.recording_url if disposition == 'ANSWERED' else None
                 if recording_url and not recording_url.startswith(("http://", "https://")):

@@ -6,15 +6,17 @@ Events are processed in the default queue (parallel processing).
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import requests
 from voice_orchestrator.celery import app
 from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Agent, Lead
 from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, upload_call_logs, upload_call_recording
+from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, normalize_phone_number, upload_call_logs, upload_call_recording
 from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
+from dialer.udhaar_utils import get_emi_call_logs, UDHAAR_BASE_URL
 from websocket.utils import push_agent_event
 
 # ============================================================================
@@ -27,36 +29,6 @@ logger = logging.getLogger(__name__)
 
 REDIS_LOCK_KEY = "esl_listener_lock"
 REDIS_LOCK_TTL = 10
-
-# @shared_task(bind=True)
-# def start_esl_listener(self):
-#     lock = conn.lock(REDIS_LOCK_KEY, timeout=1)
-#     if not lock.acquire(blocking=False):
-#         logger.info("ESL listener already running. Exiting.")
-#         return
-    
-#     while True:
-#         try:
-#             fs = InboundESL(
-#                 host=settings.FREESWITCH_ESL_HOST,
-#                 port=settings.FREESWITCH_ESL_PORT,
-#                 password=settings.FREESWITCH_ESL_PASSWORD
-#             )
-
-#             fs.connect()
-
-#             fs.send('event plain CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE CHANNEL_PARK CHANNEL_EXECUTE')
-
-#             fs.register_handle('*', dispatch_event_handler)
-
-#             logger.info("Freeswitch Connected. Listening for events...")
-
-#             while fs.connected:
-#                 fs.process_events()
-
-#         except Exception as e:
-#             logger.exception("ESL connection lost. Reconnecting in 1s...")
-#             time.sleep(1)
 
 
 def dispatch_event_handler(event) -> str:
@@ -250,9 +222,6 @@ def sync_to_db(self):
         for call_details in call_list:
             payload = call_details.get('payload', {})
             lead_id = payload.get('lead_id', None)
-            # if not lead_id:
-            #     logger.warning(f"No lead_id found in call payload for call_id {call_details.get('call_uuid', None)}. Skipping DB sync for this call.")
-            #     continue
 
             disconnect_reason = call_details.get('disconnect_reason')
             initiated_at = call_details.get('initiated_at', None)
@@ -402,3 +371,21 @@ def upload_call_recording_to_s3(log_obj, recording_path):
     except Exception as e:
         logger.exception(f"Error uploading call recording to S3: {e}")
         return None
+
+@app.task
+def post_emi_call_logs():
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    payload = get_emi_call_logs(yesterday)
+
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-call-logs/"
+    headers = {"X-API-Key": settings.API_KEY}
+
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        logger.info("post_emi_call_logs: posted {} agent(s) for {}".format(len(payload.get("data", {})), yesterday))
+        return {"success": True, "date": str(yesterday)}
+    except Exception as exc:
+        logger.exception("post_emi_call_logs: failed to post call logs: {}".format(exc))
+        return {"success": False, "error": str(exc)}
+    
