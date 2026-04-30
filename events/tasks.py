@@ -166,7 +166,7 @@ def dispatch_event_handler(event) -> str:
                 if not agent_id:
                     agent_id = call_details.get('agent_id', None) if call_details else None
 
-                if hangup_cause in ['LOSE_RACE', 'USER_NOT_REGISTERED'] and call_details: #our internal call
+                if hangup_cause in ['LOSE_RACE', 'USER_NOT_REGISTERED', 'ORIGINATOR_CANCEL'] and call_details: #our internal call
                     if call_details and call_details.get('payload', None):
                         payload = call_details.get('payload')
                         add_lead_back_to_queue(payload.get('lead_id'))
