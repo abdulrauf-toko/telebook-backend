@@ -223,8 +223,7 @@ def initiate_call(request):
             phone_number=phone_number,
             agent_id=agent.id,
             payload=payload,
-            auto_bridge=True,
-            park=True
+            auto_bridge=True
         )
         fs_manager.bgapi(originate_command)
 

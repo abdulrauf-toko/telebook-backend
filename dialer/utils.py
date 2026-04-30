@@ -1,21 +1,553 @@
 from collections import deque
-from voice_orchestrator.redis import AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, conn, LOCK_TIMEOUTS, SLEEP, SALES_AGENT_QUEUE_REDIS_KEY, \
-      SUPPORT_AGENT_QUEUE_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, AGENT_EXTENSION_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, \
-      SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, AQUISITION_AGENTS_REDIS_KEY, \
-      SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+from voice_orchestrator.redis import AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, conn, LOCK_TIMEOUTS, SLEEP, \
+      ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, AGENT_EXTENSION_MAPPING_REDIS_KEY, AGENT_LEAD_MAPPING_REDIS_KEY, \
+      AGENT_STATE_LOCK_REDIS_KEY, ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, AQUISITION_AGENTS_REDIS_KEY, \
+      SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, DIALER_LOCK_KEY, AGENT_QUEUE_BY_GROUP_REDIS_KEY
 import orjson as json
 import logging
 import time
 from django.utils import timezone
-from .models import Agent, Campaign
+from .models import Agent, Campaign, Lead
 from typing import Dict, Optional
 import uuid
+from django.db.models import Case, When, IntegerField, Q
 from voice_orchestrator.freeswitch import fs_manager
-from voice_orchestrator.constants import ORIGINATE_TIMEOUT, TOKOLAB_NUMBER
+from voice_orchestrator.constants import TOKOLAB_NUMBER, QUEUE_REFILL_THRESHOLD, DEFAULT_PICKUP_RATIO, DIALER_EXECUTION_LOCK_TIMEOUT
 from django.conf import settings
+from django.contrib.auth.models import Group, User
 from datetime import datetime
+from collections import defaultdict
 import os
 logger = logging.getLogger(__name__)
+
+
+def check_and_refill_queue():
+    """
+    Check queue levels and trigger refill tasks if needed.
+    
+    If queue length < QUEUE_REFILL_THRESHOLD:
+    - Trigger async task to fetch more contacts
+    - Replenish from database or external source
+    """
+    try:
+        raw = conn.hgetall(AGENT_LEAD_MAPPING_REDIS_KEY)
+        mapping_queue = {
+            agent_id: json.loads(leads_json)
+            for agent_id, leads_json in raw.items()
+        }
+        agent_ids_to_refill = set()
+        if not mapping_queue:
+            all_logged_in_agents = conn.hgetall(AGENT_STATE_REDIS_KEY)
+            agent_ids_to_refill = {int(agent_id) for agent_id in all_logged_in_agents.keys()}
+        else:
+            for agent_id, leads in mapping_queue.items():
+                if len(leads) < QUEUE_REFILL_THRESHOLD:
+                    agent_ids_to_refill.add(int(agent_id))
+            
+        if agent_ids_to_refill:    
+            refill_queue(agent_ids=agent_ids_to_refill)
+        
+    except Exception as exc:
+        logger.exception(f"Error checking queues: {exc}")
+        
+def refill_queue(agent_ids: set):
+    """
+    Asynchronously refill priority queue.
+    
+    Fetches high-value/warm leads and populates priority queue.
+    Non-blocking operation - runs in default queue.
+    """
+    try:
+        segment_order = Case(
+            When(segment='follow_up', then=0),
+            When(segment='active', then=1),
+            When(segment='growth', then=2),
+            When(segment='active_churn', then=3),
+            When(segment='growth_churn', then=4),
+            When(segment='acquisition', then=5),
+            When(segment='other', then=6),
+            default=7,
+            output_field=IntegerField(),
+        )
+        active_campaigns = (
+            Campaign.objects
+            .filter(active=True, leads__status='pending')
+            .filter(Q(agent_id__in=agent_ids) | Q(agent_id__isnull=True))
+            .annotate(segment_rank=segment_order)
+            .order_by('segment_rank')
+            .distinct()
+        )
+
+        new_queue = defaultdict(list)
+        lead_ids = set()
+        agent_ids = set()  # Track agents for whom we're adding leads to the queue
+
+        for active_campaign in active_campaigns:
+            leads = active_campaign.leads.filter(status='pending').order_by('updated_at')
+            count = 0
+            agent_id = active_campaign.agent.id if active_campaign.agent else 0
+            agent_id = str(agent_id)  # Redis keys must be strings
+    
+            if agent_id not in agent_ids:
+                agent_ids.add(agent_id) 
+            else:
+                continue #skip if we've already added leads for this agent in this refill cycle
+
+            if agent_id != 0:
+                agent = Agent.objects.get(id=int(agent_id))
+                selected_campaign = agent.selected_campaign
+                if selected_campaign and selected_campaign != active_campaign:
+                    continue #only fill leads from selected campaign
+
+
+            for lead in leads:
+                lead_ids.add(lead.id)
+                queue_object = construct_queue_object(active_campaign, lead)
+                count += 1
+
+                # acquisition → default queue
+                # if active_campaign.segment == "acquisition":
+                #     new_queue["0"].append(queue_object)
+                #     if not added:
+                #         add_agent_to_set(agent_id)
+                #         added = True
+                # else:
+                #     new_queue[agent_id].append(queue_object)
+                new_queue[agent_id].append(queue_object)
+
+                if count >= 6:
+                    break  # Limit to 6 leads per campaign to avoid outdated leads. 
+
+        updated = Lead.objects.filter(
+            id__in=lead_ids,
+            status='pending'
+        ).update(
+            status='in_queue',
+            updated_at=timezone.now()
+        )
+
+        if not updated:
+            return
+        
+        lock_key = f"{AGENT_LEAD_MAPPING_REDIS_KEY}:lock"
+        queue_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+        try:
+            if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                raw = conn.hgetall(AGENT_LEAD_MAPPING_REDIS_KEY)
+                queue_mapping = {
+                    agent_id: json.loads(leads_json)
+                    for agent_id, leads_json in raw.items()
+                }
+                
+                for agent, leads in new_queue.items():
+                    agent_key = str(agent)  # Redis-safe keys
+                    if agent_key not in queue_mapping:
+                        queue_mapping[agent_key] = []
+
+                    queue_mapping[agent_key].extend(leads)
+
+                data_to_store = {
+                    agent_id: json.dumps(leads_list) 
+                    for agent_id, leads_list in queue_mapping.items()
+                }
+
+                # Update secondary queue in cache
+                conn.hset(AGENT_LEAD_MAPPING_REDIS_KEY, mapping=data_to_store)
+
+                logger.info(f"Queue refilled with {len(lead_ids)} contacts")
+        except Exception as e:
+            logger.exception(f"Error updating queue in redis: {e}")
+        finally:
+            if queue_lock.owned():
+                queue_lock.release()
+
+    except Exception as exc:
+        logger.exception(f"Error refilling priority queue: {exc}")
+
+
+def add_agent_to_set(agent_id):
+    
+    lock_key = f"{AQUISITION_AGENTS_REDIS_KEY}:lock"
+    agent_list_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    
+    try:
+        if agent_list_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+            # Get existing set or create empty one
+            raw_data = conn.get(AQUISITION_AGENTS_REDIS_KEY)
+            if raw_data:
+                agent_set = set(json.loads(raw_data))
+            else:
+                agent_set = set()
+            
+            # Add agent_id to set (automatically handles duplicates)
+            agent_set.add(agent_id)
+            
+            # Store updated set with 8 hour expiry
+            conn.set(AQUISITION_AGENTS_REDIS_KEY, json.dumps(list(agent_set)), ex=28800)
+            return True
+        else:
+            logger.error(f"Could not acquire lock for {AQUISITION_AGENTS_REDIS_KEY}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error adding agent to set: {e}")
+        return False
+    finally:
+        if agent_list_lock.owned():
+            agent_list_lock.release()
+
+
+def get_aquisition_set():
+    try:
+        raw_data = conn.get(AQUISITION_AGENTS_REDIS_KEY)
+        if not raw_data:
+            return set()
+        
+        return set(json.loads(raw_data))
+    except json.JSONDecodeError:
+        logger.error(f"Failed to decode set at key {AQUISITION_AGENTS_REDIS_KEY}")
+        return set()
+    except Exception as e:
+        logger.error(f"Error retrieving agent set: {e}")
+        return set()
+
+
+def validate_and_cleanup_agent_states():
+    """
+    Validates all agent states and handles orphaned calls.
+    
+    For each busy agent:
+    1. If current_call_id exists, check if it's in active calls. If not, mark agent idle.
+    2. If current_call_id is None and call_initiated_at is > 90 seconds ago, mark agent idle.
+    
+    This prevents agents from being stuck in "busy" state when their calls are orphaned.
+    """
+    from events.utils import handle_free_agent, remove_agent_from_cache, log_agent_authentication_action
+    try:
+        # Get all agent states
+        all_agent_states = conn.hgetall(AGENT_STATE_REDIS_KEY)
+        if not all_agent_states:
+            logger.info("No agent states to validate")
+            return
+        
+        active_calls = conn.hgetall(ACTIVE_CALLS_REDIS_KEY)
+        current_time = time.time()
+        cleanup_count = 0
+        
+        for agent_id, raw_agent_data in all_agent_states.items():
+            try:
+                registered = is_user_registered(agent_id)
+                if not registered:
+                    remove_agent_from_cache(agent_id)
+                    log_agent_authentication_action(int(agent_id), 'logout')
+                    logger.info(f"Removed unregistered agent {agent_id} from cache")
+                    continue #TODO send event to client to logout if agent is unregistered.
+
+                agent_data = json.loads(raw_agent_data)
+                
+                # Skip if agent is not busy
+                if agent_data.get('state') != 'busy':
+                    continue
+                
+                current_call_id = agent_data.get('current_call_id')
+                call_initiated_at = agent_data.get('call_initiated_at')
+                
+                # Case 1: Agent has a call_id but it doesn't exist in active calls
+                if current_call_id:
+                    if current_call_id not in active_calls:
+                        logger.warning(
+                            f"Agent {agent_id} has orphaned call {current_call_id}. "
+                            f"Marking agent idle."
+                        )
+                        handle_free_agent(agent_id)
+                        cleanup_count += 1
+                    # elif call_initiated_at and current_time - call_initiated_at > AVERAGE_CALL_DURATION * 2: #if call has been active for more than 3 times the average duration, consider it orphaned
+                    #     logger.warning(
+                    #         f"Agent {agent_id} has a long-running call {current_call_id} "
+                    #         f"(initiated_at: {call_initiated_at}). Marking agent idle."
+                    #     )
+                    #     handle_free_agent(agent_id)
+                    #     cleanup_count += 1
+
+                
+                # Case 2: Agent has no call_id but initiated_at is over 90 seconds ago
+                elif call_initiated_at is not None and current_time - call_initiated_at > 90:
+                    logger.warning(
+                        f"Agent {agent_id} is busy with no call for > 90s "
+                        f"(initiated_at: {call_initiated_at}). Marking agent idle."
+                    )
+                    handle_free_agent(agent_id)
+                    cleanup_count += 1
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Failed to decode agent state for {agent_id}")
+                continue
+            except Exception as e:
+                logger.error(f"Error validating agent {agent_id}: {e}")
+                continue
+        
+        if cleanup_count > 0:
+            logger.info(f"Cleaned up {cleanup_count} orphaned agent states")
+        else:
+            logger.debug("No orphaned agent states found")
+            
+    except Exception as e:
+        logger.exception(f"Error in validate_and_cleanup_agent_states: {e}")
+
+
+def acquire_dialer_lock():
+    try:
+        lock = conn.set(DIALER_LOCK_KEY, '1', ex=DIALER_EXECUTION_LOCK_TIMEOUT, nx=True)
+        return lock is not None
+    except Exception as e:
+        logger.error(f"Error acquiring dialer lock: {e}")
+        return False
+
+def release_dialer_lock():
+    try:
+        conn.delete(DIALER_LOCK_KEY)
+        return True
+    except Exception as e:
+        logger.error(f"Error releasing dialer lock: {e}")
+        return False
+
+def process_priority_queue() -> int:
+    """
+    Process priority queue with 1:1 agent-to-contact assignment.
+    """
+    from events.utils import is_agent_idle_in_cache
+    total_calls_dialed = 0
+    lock_key = f"{AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY}:lock"
+    queue_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    
+    try:
+        
+        if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+        
+            # Get priority queue
+            priority_queue_mapping = get_priority_queue_mapping()
+
+            if not priority_queue_mapping:
+                logger.info("Priority queue is empty")
+                return 0
+
+            for agent_id, leads in priority_queue_mapping.items():
+                if not leads: #list empty
+                    continue 
+                
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                        if not is_agent_idle_in_cache(agent_id=agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"Agent {agent_id} is not idle, skipping")
+                            continue
+                        
+                        # Originate call
+                        calls_dialed, leads_left = make_outbound_call_helper(
+                            agent_id=agent_id,
+                            leads=leads,
+                            calls_to_make=1 #one to one mapping for priority queue
+                        )
+
+                        total_calls_dialed += calls_dialed
+                        priority_queue_mapping[agent_id] = leads_left
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+            
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+            
+                finally:
+                    if agent_lock.owned():
+                        agent_lock.release()
+
+            # Update priority queue in cache using HSET
+            conn.hset(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY, mapping={
+                agent_id: json.dumps(leads_list) 
+                for agent_id, leads_list in priority_queue_mapping.items()
+            })
+
+            logger.info(f"Priority queue: {total_calls_dialed} calls dialed")
+            return total_calls_dialed
+    
+        
+    except Exception as exc:
+        logger.exception(f"Error processing priority queue: {exc}")
+        return total_calls_dialed
+    finally:
+        if queue_lock.owned():
+            queue_lock.release()
+
+
+
+# ============================================================================
+# ALGORITHM IMPLEMENTATION - STEP 3: PROCESS SECONDARY QUEUE
+# ============================================================================
+
+def process_secondary_queue() -> int:
+    from events.utils import is_agent_idle_in_cache
+    total_calls_dialed = 0
+    lock_key = f"{AGENT_LEAD_MAPPING_REDIS_KEY}:lock"
+    queue_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    try:
+        if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+            # Get secondary queue
+            raw = conn.hgetall(AGENT_LEAD_MAPPING_REDIS_KEY)
+            secondary_queue = {
+                agent_id: json.loads(leads_json)
+                for agent_id, leads_json in raw.items()
+            }
+
+            if not secondary_queue:
+                logger.info("Secondary queue is empty")
+                return 0
+
+            # logger.info(f'secondary_queue: {secondary_queue}')
+            # # Get pickup ratio (can be per-campaign or global)
+            pickup_ratio = DEFAULT_PICKUP_RATIO
+            dial_multiplier = max(1, int(1 / pickup_ratio))  # floor(1/y)
+
+            logger.info(f"Pickup ratio: {pickup_ratio}, Dial multiplier: {dial_multiplier}") 
+
+            # # Calculate calls to initiate
+            # calls_to_initiate = available_capacity * dial_multiplier
+            # calls_to_initiate = min(calls_to_initiate, len(secondary_queue))
+
+            # logger.info(f"Initiating {calls_to_initiate} predictive dials")
+
+            for agent_id, leads in secondary_queue.items():
+                if not leads:
+                    continue
+
+                if agent_id == '0':
+                    continue #handle acquisition leads later on
+
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                        if not is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"no available agent found for agent_id {agent_id}, skipping predictive dial")
+                            continue
+                        
+                        calls_dialed, leads_left = make_outbound_call_helper(agent_id, leads, calls_to_make=dial_multiplier)
+                        total_calls_dialed += calls_dialed
+                        secondary_queue[agent_id] = leads_left
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+            
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+            
+                finally:
+                    if agent_lock.owned():
+                        agent_lock.release()
+                
+            data_to_store = {
+                agent_id: json.dumps(leads_list) 
+                for agent_id, leads_list in secondary_queue.items()
+            }
+
+            # Update secondary queue in cache
+            conn.hset(AGENT_LEAD_MAPPING_REDIS_KEY, mapping=data_to_store)
+
+            logger.info(f"Secondary queue: {total_calls_dialed} calls dialed")
+            return total_calls_dialed
+        
+    except Exception as exc:
+        logger.exception(f"Error processing secondary queue: {exc}")
+        return total_calls_dialed
+    finally:
+        if queue_lock.owned():
+            queue_lock.release()
+
+
+def process_aquisition_queue() -> int:
+    from events.utils import is_agent_idle_in_cache
+
+    aquisition_agents = get_aquisition_set()
+    
+    total_calls_dialed = 0
+    lock_key = f"{AGENT_LEAD_MAPPING_REDIS_KEY}:lock"
+    queue_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+    try:
+        if queue_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+            # Get secondary queue
+            raw = conn.hgetall(AGENT_LEAD_MAPPING_REDIS_KEY)
+            secondary_queue = {
+                agent_id: json.loads(leads_json)
+                for agent_id, leads_json in raw.items()
+            }
+
+            if not secondary_queue:
+                logger.info("Secondary queue is empty")
+                return 0
+
+            # # Get pickup ratio (can be per-campaign or global)
+            pickup_ratio = DEFAULT_PICKUP_RATIO
+            dial_multiplier = max(1, int(1 / pickup_ratio))  # floor(1/y)
+
+            logger.info(f"Pickup ratio: {pickup_ratio}, Dial multiplier: {dial_multiplier}") 
+
+            # # Calculate calls to initiate
+            # calls_to_initiate = len(available_agents) * dial_multiplier
+
+            # logger.info(f"Initiating {calls_to_initiate} predictive dials")
+            leads = secondary_queue.get("0", [])
+            if not leads:
+                logger.info("No leads in acquisition queue")
+                return 0
+                
+            for agent_id in aquisition_agents:
+                lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
+                agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
+
+                try:
+                    if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
+
+                        if not is_agent_idle_in_cache(agent_id, check_call_id=True, check_state=True):
+                            logger.info(f"no available agent found for agent_id {agent_id}, skipping acquisition dial")
+                            continue
+                    
+                        calls_dialed, leads = make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=dial_multiplier)
+                        total_calls_dialed += calls_dialed
+                    
+                    else:
+                        logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
+                        return False
+                except Exception as e:
+                    logger.error(f"Error checking idle state for agent {agent_id}: {e}")
+                    return False
+                finally:                    
+                    if agent_lock.owned():
+                        agent_lock.release()
+                
+            secondary_queue["0"] = leads
+
+            # Update secondary queue in cache
+            conn.hset(AGENT_LEAD_MAPPING_REDIS_KEY, "0", json.dumps(leads))
+
+            logger.info(f"Aquisition: {total_calls_dialed} calls dialed")
+            return total_calls_dialed
+        
+    except Exception as exc:
+        logger.exception(f"Error processing acquisition queue: {exc}")
+        return total_calls_dialed
+    finally:
+        if queue_lock.owned():
+            queue_lock.release()
 
 def get_priority_queue_mapping():
     raw_data = conn.hgetall(AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY)
@@ -57,27 +589,25 @@ def add_to_priority_queue_mapping(agent_id, entry):
         if queue_lock.owned():
             queue_lock.release()
 
+def construct_agent_queue_redis_key(group_name):
+    return f"{AGENT_QUEUE_BY_GROUP_REDIS_KEY}:{group_name}"
 
 def get_all_idle_agents():
-    support = conn.zrange(SUPPORT_AGENT_QUEUE_REDIS_KEY, 0, -1)
-    sales = conn.zrange(SALES_AGENT_QUEUE_REDIS_KEY, 0, -1)
+    group_names = list(Group.objects.values_list('name', flat=True))
+    free_agent_count = 0
+    for name in group_names:
+        redis_key = construct_agent_queue_redis_key(name)
+        free_agent_count += conn.zrange(redis_key, 0, -1)
     
-    return support + sales
+    return free_agent_count
 
-def get_all_idle_support_agents():
-    return conn.zrange(SUPPORT_AGENT_QUEUE_REDIS_KEY, 0, -1)
-
-def get_all_idle_sales_agents():
-    return conn.zrange(SALES_AGENT_QUEUE_REDIS_KEY, 0, -1)
+def get_all_idle_agents_by_group(group_name):
+    redis_key = construct_agent_queue_redis_key(group_name)
+    return conn.zrange(redis_key, 0, -1)
 
 def get_all_active_calls():
-    sales = conn.hgetall(ACTIVE_CALLS_REDIS_KEY)
-
-    return sales
-
-def get_all_active_sales_calls():
-    # return conn.hgetall(SALES_ACTIVE_CALLS_REDIS_KEY)
-    pass
+    calls = conn.hgetall(ACTIVE_CALLS_REDIS_KEY)
+    return calls
 
 def remove_active_call(call_id):
     if not call_id:
@@ -139,26 +669,22 @@ def get_and_clear_completed_calls():
             call_lock.release()
 
 
-def add_sales_agent_to_queue(agent_id):
-    conn.zadd(SALES_AGENT_QUEUE_REDIS_KEY, {agent_id: time.time()})
+def add_agent_to_group_queue(agent_id):
+    agent = Agent.objects.select_related('user').get(id=agent_id)
+    group = agent.user.groups.first()
+    if not group:
+        return
+    redis_key = construct_agent_queue_redis_key(group.name)
+    conn.zadd(redis_key, {agent_id: time.time()})
 
-def add_support_agent_to_queue(agent_id):
-    conn.zadd(SUPPORT_AGENT_QUEUE_REDIS_KEY, {agent_id: time.time()})
-
-def add_secondary_sales_agent_to_queue(agent_id):
-    conn.zadd(SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, {agent_id: time.time()})
-
-def remove_agent_from_sales_queue(agent_id):
+def remove_agent_from_group_queue(agent_id):
     try:
-        conn.zrem(SALES_AGENT_QUEUE_REDIS_KEY, agent_id)
-        return True
-    except Exception as e:
-        logger.error(f"Error removing agent {agent_id} from queue: {e}")
-        return False
-    
-def remove_agent_from_support_queue(agent_id):
-    try:
-        conn.zrem(SUPPORT_AGENT_QUEUE_REDIS_KEY, agent_id)
+        agent = Agent.objects.select_related('user').get(id=agent_id)
+        group = agent.user.groups.first()
+        if not group:
+            return False
+        redis_key = construct_agent_queue_redis_key(group.name)
+        conn.zrem(redis_key, agent_id)
         return True
     except Exception as e:
         logger.error(f"Error removing agent {agent_id} from queue: {e}")
@@ -169,77 +695,30 @@ def get_agent_state(agent_id):
     return json.loads(state) if state else {}
 
 def get_all_agent_states():
-    return conn.get(AGENT_STATE_REDIS_KEY)
+    return conn.get(AGENT_STATE_REDIS_KEY)       
 
-def get_agent_team(agent_id):
-    agent = get_agent_state(agent_id)
-    return agent.get('agent_team')
-
-def get_pending_support_agent():
-    all_agents = get_all_agent_states()
-    for agent, details in all_agents.items():
-        if details.get('state') == 'pending' and details.get('agent_team') == "support":
-            return agent
-        
-def get_pending_sales_agent():
-    all_agents = get_all_agent_states()
-    for agent, details in all_agents.items():
-        if details.get('state') == 'pending' and details.get('agent_team') == "sales":
-            return agent
-        
-
-def get_next_available_sales_agent():
+def get_next_available_agent(group_name):
     try:
-        result = conn.zpopmin(SALES_AGENT_QUEUE_REDIS_KEY, count=1)
+        redis_key = construct_agent_queue_redis_key(group_name)
+        result = conn.zpopmin(redis_key, count=1)
         if not result:
             return None
-
         agent_id, _ = result[0]
-        return agent_id 
-        
+        return agent_id
     except Exception as exc:
-        logger.exception(f"Error finding next available sales agent: {exc}")
+        logger.exception(f"Error finding next available agent for group {group_name}: {exc}")
         return None
     
-def peek_next_available_sales_agent():
+def peek_next_available_agent(group_name):
     try:
-        # Peek the lowest-scored member without removing it
-        result = conn.zrange(SALES_AGENT_QUEUE_REDIS_KEY, 0, 0)
+        redis_key = construct_agent_queue_redis_key(group_name)
+        result = conn.zrange(redis_key, 0, 0)
         if not result:
             return None
-
         return result[0]
-        
     except Exception as exc:
-        logger.exception(f"Error peeking next available sales agent: {exc}")
-        return None
-    
-def get_next_available_support_agent():
-    try:
-        result = conn.zpopmin(SUPPORT_AGENT_QUEUE_REDIS_KEY, count=1)
-        if not result:
-            return None
-
-        agent_id, _ = result[0]
-        return agent_id 
-        
-    except Exception as exc:
-        logger.exception(f"Error finding next available support agent: {exc}")
-        return None
-    
-
-def get_next_available_secondary_sales_agent():
-    try:
-        result = conn.zpopmin(SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, count=1)
-        if not result:
-            return None
-
-        agent_id, _ = result[0]
-        return agent_id 
-        
-    except Exception as exc:
-        logger.exception(f"Error finding next available support agent: {exc}")
-        return None
+        logger.exception(f"Error peeking next available agent for group {group_name}: {exc}")
+        return None   
     
 
 def construct_queue_object(campaign, lead):
@@ -282,7 +761,6 @@ def get_agent_extension_mapping_from_cache():
     else:
         return get_agent_extension_mapping()
 
-
 def get_agent_extension_mapping():
     all_agents = Agent.objects.all()
     mapping = {}
@@ -291,11 +769,9 @@ def get_agent_extension_mapping():
 
     return mapping
 
-
 def get_agent_extension(agent_id):
     mapping = get_agent_extension_mapping_from_cache()
     return mapping[str(agent_id)]
-
 
 def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
     from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
@@ -304,16 +780,16 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
     removed = False
 
     auto_bridge = calls_to_make == 1
-    park = calls_to_make > 1
+    # park = calls_to_make > 1
 
     if agent_id == '0' and auto_bridge:
-        agent_id = peek_next_available_sales_agent()
+        agent_id = peek_next_available_agent('sales')
         if not agent_id:
             logger.error("No available agents for priority call")
             return calls_dialed, leads
         
         if not is_agent_idle_in_cache(agent_id):
-            remove_agent_from_sales_queue(agent_id)
+            remove_agent_from_group_queue(agent_id)
             return calls_dialed, leads
 
     lead_queue = deque(leads)
@@ -336,13 +812,12 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
             agent_id=agent_id,
             phone_number=phone_number,
             payload=payload,
-            park=park,
             auto_bridge=auto_bridge
         )
 
         if success:
             if not removed:
-                success = remove_agent_from_sales_queue(agent_id)
+                success = remove_agent_from_group_queue(agent_id)
                 if success:
                     if auto_bridge:
                         success = mark_agent_busy_in_cache(agent_id, call_uuid) #mark busy with call id
@@ -350,7 +825,7 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
                         success = mark_agent_busy_in_cache(agent_id, None) #mark busy without call id for predictive dialer logic
 
                     if not success:
-                        add_sales_agent_to_queue(agent_id)
+                        add_agent_to_group_queue(agent_id)
 
                 if not success:
                     return calls_dialed, list(lead_queue) #if we fail to remove agent from queue, we should not proceed with more calls to avoid duplicates
@@ -397,7 +872,6 @@ def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
             agent_id=None, #decide after pick up
             phone_number=phone_number,
             payload=payload,
-            park=True,
             auto_bridge=False
         )
 
@@ -424,17 +898,12 @@ def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
     return calls_dialed, list(lead_queue)
 
 
-# ============================================================================
-# CALL ORIGINATION - FREESWITCH INTEGRATION
-# ============================================================================
-
 def originate_call(
     phone_number: str,
-    park: bool,
     agent_id: Optional[str] = None,
     payload: Optional[dict] = None,
     auto_bridge: bool = False
-) -> Dict:
+):
 
     try:
         call_uuid = str(uuid.uuid4())      
@@ -444,8 +913,7 @@ def originate_call(
             phone_number=phone_number,
             agent_id=agent_id,
             payload=payload,
-            auto_bridge=auto_bridge,
-            park=park
+            auto_bridge=auto_bridge
         )
         
         if not originate_command:
@@ -470,7 +938,6 @@ def originate_call(
 def build_originate_command(
     call_id: str,
     phone_number: str,
-    park: bool,
     agent_id: Optional[str] = None,
     payload: Optional[dict] = None,
     auto_bridge: bool = False,
@@ -491,10 +958,7 @@ def build_originate_command(
 
         application = 'custom_park'
 
-        bridge_to_string = ""
         if auto_bridge:
-            agent_extension = get_agent_extension(agent_id)
-            bridge_to_string = f"(user/{agent_extension})"
             payload['auto_bridge'] = "true"
             payload['to_number'] = phone_number
 
@@ -510,7 +974,6 @@ def build_originate_command(
         else:
             call_string = f"user/{phone_number}" 
 
-        
         originate_cmd = (
             f"originate {{origination_caller_id_number={TOKOLAB_NUMBER},"
             f"{var_string}}}{call_string} {application}"
@@ -549,9 +1012,6 @@ def flush_redis_data():
     try:
         keys_to_delete = [
             AGENT_STATE_REDIS_KEY,
-            SUPPORT_AGENT_QUEUE_REDIS_KEY,
-            SALES_AGENT_QUEUE_REDIS_KEY,
-            SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY,
             AGENT_PRIORITY_LEAD_MAPPING_REDIS_KEY,
             AGENT_LEAD_MAPPING_REDIS_KEY,
             ACTIVE_CALLS_REDIS_KEY,
@@ -600,7 +1060,7 @@ def active_campaigns(agent):
                 'segment': campaign.segment,
                 'count': campaign.leads.count()
             }
-            if agent.selected_segment == campaign.segment:
+            if agent.selected_campaign == campaign:
                 data['active'] = True
             else:
                 data['active'] = False
@@ -609,3 +1069,6 @@ def active_campaigns(agent):
         return response_list
     except Exception as e:
         logger.exception(f"Error fetching active campaigns: {e}")
+
+def reset_selected_campaign():
+    Agent.objects.all().update(selected_campaign=None)

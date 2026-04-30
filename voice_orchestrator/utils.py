@@ -156,6 +156,21 @@ def upload_call_recording(file_path: str, recording_date: date) -> str:
     return url
 
 
+def delete_s3_file(file_url: str) -> bool:
+    parsed_url = urlparse(file_url)
+    s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+    s3_client.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key)
+    return True
+
+
 def generate_presigned_s3_url(file_url: str, expires_in: int = 3600) -> str:
     parsed_url = urlparse(file_url)
     s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')

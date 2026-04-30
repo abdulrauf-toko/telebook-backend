@@ -1,10 +1,10 @@
 import orjson as json
-from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, SALES_AGENT_QUEUE_REDIS_KEY, SUPPORT_AGENT_QUEUE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
+from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import logging
 from datetime import datetime
 import time
 from voice_orchestrator.freeswitch import fs_manager
-from dialer.utils import add_call_to_completed_list, add_secondary_sales_agent_to_queue, get_agent_extension, get_agent_team, add_sales_agent_to_queue, add_support_agent_to_queue
+from dialer.utils import add_call_to_completed_list, get_agent_extension, add_agent_to_group_queue, remove_agent_from_group_queue
 from .models import AgentLogs, Agent
 
 logger = logging.getLogger(__name__)
@@ -36,39 +36,24 @@ FS_TO_DJANGO_STATUS = {
 
 def mark_agent_logged_in_cache(agent_id, team):
     lock_key = f"{AGENT_STATE_LOCK_REDIS_KEY}{agent_id}"
-    
-    # timeout=5: If the process crashes, the lock dies in 3 seconds
-    # sleep=0.05: If locked, wait 50ms before trying again
     agent_lock = conn.lock(lock_key, timeout=LOCK_TIMEOUTS, sleep=SLEEP)
 
     try:
         if agent_lock.acquire(blocking_timeout=LOCK_TIMEOUTS):
             raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-            if not raw_data: #AGENT logged out before call end event
+            if not raw_data:
                 agent_data = {"state": "idle", "current_call_id": None, "team": team}
             else:
                 agent_data = json.loads(raw_data)
                 agent_data.update({"state": "idle", "current_call_id": None})
-            
-            if agent_data.get('team') == 'sales':
-                queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-            elif agent_data.get('team') == 'secondary_sales':
-                queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-            else:
-                queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
 
-
-            #Pipe ensures both updates is done via a single round-trip. Better for performance
-            with conn.pipeline() as pipe:
-                pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-                pipe.zadd(queue_key, {agent_id: time.time()}) #scored set. guarantees deduplication, and removes the the agent in front of the queue
-                pipe.execute()
+            conn.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
+            add_agent_to_group_queue(agent_id)
             return agent_data
-
         else:
             logger.error(f"Could not acquire lock for agent {agent_id} - System Busy")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error updating agent {agent_id}: {e}")
         return None
@@ -76,28 +61,18 @@ def mark_agent_logged_in_cache(agent_id, team):
         if agent_lock.owned():
             agent_lock.release()
 
-def mark_agent_idle_in_cache(agent_id): #changes both state and adds to queue.
-    
+def mark_agent_idle_in_cache(agent_id):
     try:
         raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-        if not raw_data: #AGENT logged out before call end event
+        if not raw_data:
             return None
-        
+
         agent_data = json.loads(raw_data)
-        if agent_data.get('team') == 'sales':
-            queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-        elif agent_data.get('team') == 'secondary_sales':
-            queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-        else:
-            queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-        agent_data.update({"state": "idle", "current_call_id": None, 'call_initiated_at': None})
-        #Pipe ensures both updates is done via a single round-trip. Better for performance
-        with conn.pipeline() as pipe:
-            pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-            pipe.zadd(queue_key, {agent_id: time.time()}) #scored set. guarantees deduplication, and removes the the agent in front of the queue
-            pipe.execute()
+        agent_data.update({"state": "idle", "current_call_id": None, "call_initiated_at": None})
+        conn.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
+        add_agent_to_group_queue(agent_id)
         return agent_data
-            
+
     except Exception as e:
         logger.error(f"Error updating agent {agent_id}: {e}")
         return None
@@ -106,29 +81,19 @@ def mark_agent_busy_in_cache(agent_id, call_id, remove_from_queue=True):
     try:
         raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
         if not raw_data:
-            return None #AGENT LOGGED OUT WHILE BRIDGING
-        
+            return None
+
         agent_data = json.loads(raw_data)
-        # Update agent state
         agent_data.update({
             "state": "busy",
             "current_call_id": call_id,
             "call_initiated_at": time.time()
         })
-
-        if agent_data.get('team') == 'sales':
-            queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-        elif agent_data.get('team') == 'secondary_sales':
-            queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-        else:
-            queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-
-        with conn.pipeline() as pipe:
-            pipe.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
-            if remove_from_queue:
-                pipe.zrem(queue_key, agent_id)  # remove from idle queue
-            pipe.execute()
+        conn.hset(AGENT_STATE_REDIS_KEY, agent_id, json.dumps(agent_data))
+        if remove_from_queue:
+            remove_agent_from_group_queue(agent_id)
         return True
+
     except Exception as e:
         logger.error(f"Error marking agent {agent_id} as busy: {e}")
         return False
@@ -183,22 +148,11 @@ def get_all_idle_agents_in_cache(check_call_id=False, check_state=True):
         return []       
 
 def remove_agent_from_cache(agent_id):
-    
-    raw_data = conn.hget(AGENT_STATE_REDIS_KEY, agent_id)
-    if not raw_data:
-        return None #AGENT LOGGED OUT 
-    
-    agent_data = json.loads(raw_data)
-    if agent_data.get('team') == 'sales':
-        queue_key = SALES_AGENT_QUEUE_REDIS_KEY
-    elif agent_data.get('team') == 'secondary_sales':
-        queue_key = SECONDARY_SALES_AGENT_QUEUE_REDIS_KEY
-    else:
-        queue_key = SUPPORT_AGENT_QUEUE_REDIS_KEY
-    with conn.pipeline() as pipe:
-        pipe.hdel(AGENT_STATE_REDIS_KEY, agent_id)
-        pipe.zrem(queue_key, agent_id)  # remove from idle queue if present
-        pipe.execute()
+    if not conn.hget(AGENT_STATE_REDIS_KEY, agent_id):
+        return None
+
+    conn.hdel(AGENT_STATE_REDIS_KEY, agent_id)
+    remove_agent_from_group_queue(agent_id)
     return True
 
 
@@ -284,71 +238,6 @@ def update_active_call_in_cache(call_id, details):
         if call_lock.owned():
             call_lock.release()
 
-
-def remove_active_call_in_cache(call_id):
-    # Create a pipeline for atomic-like behavior
-    pipe = conn.pipeline()
-    # pipe.hget(ACTIVE_CALLS_REDIS_KEY, call_id)
-    # pipe.hdel(ACTIVE_CALLS_REDIS_KEY, call_id)
-
-    # results[0] is the hget output, results[1] is the hdel count
-    results = pipe.execute()
-    raw_data = results[0]
-
-    if raw_data:
-        return json.loads(raw_data)
-    return None
-
-
-def bridge_call(agent_id, event_obj):
-    try:
-        # Extract call information from the event
-        call_uuid = event_obj.channel_uuid
-        
-        if not call_uuid:
-            logger.error(f"No channel UUID found in event for agent {agent_id}")
-            return None
-        
-        success = transfer_agent_to_call(call_uuid, agent_id)
-        if not success:
-            raise Exception(f'get_body didnt return with +OK') #TODO simplify/remove this in prod
-        
-        # Mark the agent as busy with this call
-        agent_busy_result = mark_agent_busy_in_cache(agent_id, call_uuid)
-        
-        if not agent_busy_result:
-            logger.error(f"Failed to mark agent {agent_id} as busy for call {call_uuid}")
-            return None
-        
-        # Prepare call details to store in active calls cache
-        call_details = {
-            "agent_id": agent_id,
-            "channel_uuid": call_uuid,
-            "caller_id_number": event_obj.caller_id_number,
-            "caller_id_name": event_obj.caller_id_name,
-            "destination_number": event_obj.destination_number,
-            "channel_name": event_obj.channel_name,
-            "bridged_at": time.time(),
-            "event_id": str(event_obj.event_id)
-        }
-        
-        # Add the call to active calls cache
-        add_active_call_in_cache(call_uuid, call_details)
-        
-        logger.info(f"Successfully bridged agent {agent_id} to call {call_uuid}")
-        
-        return {
-            "status": "bridged",
-            "agent_id": agent_id,
-            "call_id": call_uuid,
-            "call_details": call_details
-        }
-        
-    except Exception as e:
-        logger.error(f"Error bridging agent {agent_id} to call: {e}")
-        return None
-
-
 def transfer_agent_to_call(call_uuid, agent_id, phone_number=None):
     if phone_number:
         extension = phone_number
@@ -395,13 +284,7 @@ def transfer_call(call_uuid, agent_id):
 
 def handle_free_agent(agent_id):
     mark_agent_idle_in_cache(agent_id)
-    agent_team = get_agent_team(agent_id)
-    if agent_team == 'support':
-        add_support_agent_to_queue(agent_id)
-    elif agent_team == "sales":
-        add_sales_agent_to_queue(agent_id)
-    elif agent_team == 'secondary_sales':
-        add_secondary_sales_agent_to_queue(agent_id)
+    add_agent_to_group_queue(agent_id)
 
 
 def map_call_status(hangup_cause):
