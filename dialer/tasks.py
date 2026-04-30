@@ -197,9 +197,7 @@ def fetch_and_store_emi_campaigns(self):
                 "agent": agent,
                 "segment": "other",
                 "campaign_name": "{} - EMI".format(agent_username),
-                "status": "active",
                 "active": True,
-                "metadata": {"campaign_type": "rupin-emi-campaign"},
             },
         )
 
@@ -276,3 +274,4 @@ def formdata_scheduled_task(lead_id):
     lead = Lead.objects.get(id=lead_id)
     queue_object = construct_queue_object(lead.campaign, lead)
     add_to_priority_queue_mapping(lead.campaign.agent_id, queue_object)
+

@@ -57,6 +57,7 @@ def refill_queue(agent_ids: set):
     Fetches high-value/warm leads and populates priority queue.
     Non-blocking operation - runs in default queue.
     """
+    from dialer.udhaar_utils import refill_emi_campaign_data
     try:
         segment_order = Case(
             When(segment='follow_up', then=0),
@@ -81,6 +82,7 @@ def refill_queue(agent_ids: set):
         new_queue = defaultdict(list)
         lead_ids = set()
         agent_ids = set()  # Track agents for whom we're adding leads to the queue
+        agents_to_fetch_leads = set()
 
         for active_campaign in active_campaigns:
             leads = active_campaign.leads.filter(status='pending').order_by('updated_at')
@@ -93,12 +95,15 @@ def refill_queue(agent_ids: set):
             else:
                 continue #skip if we've already added leads for this agent in this refill cycle
 
+            if active_campaign.campaign_type == 'rupin-emi':
+                if len(leads) < 2:
+                    agents_to_fetch_leads.add(agent_id)
+
             if agent_id != 0:
                 agent = Agent.objects.get(id=int(agent_id))
                 selected_campaign = agent.selected_campaign
                 if selected_campaign and selected_campaign != active_campaign:
                     continue #only fill leads from selected campaign
-
 
             for lead in leads:
                 lead_ids.add(lead.id)
@@ -117,6 +122,9 @@ def refill_queue(agent_ids: set):
 
                 if count >= 6:
                     break  # Limit to 6 leads per campaign to avoid outdated leads. 
+
+        if agents_to_fetch_leads:
+            refill_emi_campaign_data(agents_to_fetch_leads)
 
         updated = Lead.objects.filter(
             id__in=lead_ids,
@@ -1072,3 +1080,25 @@ def active_campaigns(agent):
 
 def reset_selected_campaign():
     Agent.objects.all().update(selected_campaign=None)
+
+
+def create_emi_campaigns():
+    emi_agents = Agent.objects.filter(teams__name='rupin_emi')
+    today = timezone.now().strftime("%Y%m%d")
+
+    for agent in emi_agents:
+        agent_username = agent.telecard_username
+        campaign_id = "{}-emi-{}".format(agent_username, today)
+        _, created = Campaign.objects.get_or_create(
+            campaign_id=campaign_id,
+            defaults={
+                "agent": agent,
+                "segment": "other",
+                "campaign_type": "rupin_emi",
+                "campaign_name": "{} - EMI".format(agent_username),
+                "active": True,
+            },
+        )
+        logger.info("create_emi_campaigns: {} campaign {} for agent {}".format(
+            "created" if created else "found existing", campaign_id, agent_username
+        ))

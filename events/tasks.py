@@ -389,3 +389,8 @@ def post_emi_call_logs():
         logger.exception("post_emi_call_logs: failed to post call logs: {}".format(exc))
         return {"success": False, "error": str(exc)}
     
+
+@app.task
+def daily_start_routine():
+    from dialer.utils import create_emi_campaigns
+    create_emi_campaigns()

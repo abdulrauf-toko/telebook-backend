@@ -12,6 +12,19 @@ from django.core.exceptions import ValidationError
 import uuid
 
 
+class Team(models.Model):
+    NAME_CHOICES = [
+        ('saddar_growth', "Saddar Growth"),
+        ('rupin_emi', "Rupin EMI"),
+    ]
+
+    name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Agent(models.Model):
     user = models.OneToOneField(
         User,
@@ -43,6 +56,12 @@ class Agent(models.Model):
 
     udhaar_username = models.CharField(
         max_length=50, null=True, blank=True
+    )
+
+    teams = models.ManyToManyField(
+        Team,
+        blank=True,
+        related_name='agents',
     )
 
     selected_campaign = models.ForeignKey(
@@ -97,6 +116,9 @@ class Agent(models.Model):
     def save(self, *args, **kwargs):
         if self.user is not None and not self.user.groups.exists():
             raise ValidationError("The associated user must belong to at least one group.")
+
+        if self.pk is not None and not self.teams.exists():
+            raise ValidationError("Agent must belong to at least one team.")
 
         old_agent = None
         if self.pk is not None:

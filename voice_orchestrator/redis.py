@@ -1,6 +1,5 @@
 import redis
 from django.conf import settings
-from redis import ConnectionPool
 
 ##### NAMESPACES
 AGENT_STATE_REDIS_KEY = 'AGENT_STATES' #dict where key is agent id, value is object with details (call_id, status, etc) 
