@@ -5,24 +5,24 @@ from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, conn, AGENT_PRI
 from django.utils import timezone
 from voice_orchestrator.celery import app
 import time
-from .utils import get_priority_queue_mapping, construct_queue_object, is_user_registered, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive
+from .utils import get_priority_queue_mapping, construct_queue_object, is_user_registered, make_outbound_call_helper, make_outbound_call_helper_aquisition, flush_redis_data, make_campaigns_inactive, add_to_priority_queue_mapping
 from collections import defaultdict
-from .models import Lead, Campaign
+from .models import Lead, Campaign, Agent, CallLog
 from django.db.models import Case, When, IntegerField
-from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, AGENT_FREE_PREDICTION_WINDOW, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT, PERIODIC_TRIGGER_INTERVAL, PREDICTIVE_DIALING
-from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent, remove_agent_from_cache
+from django.db import transaction
+from voice_orchestrator.constants import DEFAULT_PICKUP_RATIO, AVERAGE_CALL_DURATION, QUEUE_REFILL_THRESHOLD, DIALER_EXECUTION_LOCK_TIMEOUT
+from events.utils import is_agent_idle_in_cache, get_all_idle_agents_in_cache, handle_free_agent, remove_agent_from_cache, log_agent_authentication_action
 from .udhaar_utils import store_campaigns_from_df
+from voice_orchestrator.utils import normalize_phone_number
 import requests
 import pandas as pd
 from io import StringIO
 from django.conf import settings
-from websocket.utils import push_agent_event
+from dialer.udhaar_utils import UDHAAR_BASE_URL
 
 logger = logging.getLogger(__name__)
 
 DIALER_LOCK_KEY = 'dialer:execution_lock'
-AGENT_CALL_COUNT_KEY = 'agent:call_count:{agent_id}'
-AGENT_STATE_CACHE_KEY = 'agent_state:{agent_id}'
 
 # ============================================================================
 # DIALER ORCHESTRATION - MAIN ENTRY POINT
@@ -428,7 +428,7 @@ def refill_queue(self):
         for active_campaign in active_campaigns:
             added = False
             campaign_leads = []
-            leads = active_campaign.leads.filter(status='pending')
+            leads = active_campaign.leads.filter(status='pending').order_by('updated_at')
             count = 0
             agent_id = active_campaign.agent.id if active_campaign.agent else 0
             agent_id = str(agent_id)  # Redis keys must be strings
@@ -454,7 +454,7 @@ def refill_queue(self):
                 #     new_queue[agent_id].append(queue_object)
                 new_queue[agent_id].append(queue_object)
 
-                if count >= 50:
+                if count >= 10:
                     break  # Limit to 50 leads per campaign to prevent overloading queue
 
         updated = Lead.objects.filter(
@@ -583,6 +583,7 @@ def validate_and_cleanup_agent_states():
                 registered = is_user_registered(agent_id)
                 if not registered:
                     remove_agent_from_cache(agent_id)
+                    log_agent_authentication_action(int(agent_id), 'logout')
                     logger.info(f"Removed unregistered agent {agent_id} from cache")
                     continue #TODO send event to client to logout if agent is unregistered.
 
@@ -604,13 +605,13 @@ def validate_and_cleanup_agent_states():
                         )
                         handle_free_agent(agent_id)
                         cleanup_count += 1
-                    elif call_initiated_at and current_time - call_initiated_at > AVERAGE_CALL_DURATION * 2: #if call has been active for more than 3 times the average duration, consider it orphaned
-                        logger.warning(
-                            f"Agent {agent_id} has a long-running call {current_call_id} "
-                            f"(initiated_at: {call_initiated_at}). Marking agent idle."
-                        )
-                        handle_free_agent(agent_id)
-                        cleanup_count += 1
+                    # elif call_initiated_at and current_time - call_initiated_at > AVERAGE_CALL_DURATION * 2: #if call has been active for more than 3 times the average duration, consider it orphaned
+                    #     logger.warning(
+                    #         f"Agent {agent_id} has a long-running call {current_call_id} "
+                    #         f"(initiated_at: {call_initiated_at}). Marking agent idle."
+                    #     )
+                    #     handle_free_agent(agent_id)
+                    #     cleanup_count += 1
 
                 
                 # Case 2: Agent has no call_id but initiated_at is over 90 seconds ago
@@ -639,8 +640,9 @@ def validate_and_cleanup_agent_states():
 
 @app.task(bind=True)
 def fetch_and_store_telebook_campaign(self):
+    return    
     MAX_TRIES = 10
-    POLL_INTERVAL = 30  # seconds
+    POLL_INTERVAL = 45  # seconds
     POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
     headers = {"X-API-Key": settings.API_KEY}
 
@@ -694,6 +696,122 @@ def fetch_and_store_telebook_campaign(self):
     logger.error("Max polling attempts ({}) reached without completion".format(MAX_TRIES))
 
 
+@app.task(bind=True)
+def fetch_and_store_emi_campaigns(self):
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-campaign-users/today/"
+    headers = {"X-API-Key": settings.API_KEY}
+
+    try:
+        response = requests.get(api_url, headers=headers, timeout=60)
+        response.raise_for_status()
+        response_data = response.json()
+    except Exception as exc:
+        logger.exception("Error fetching EMI campaigns: {}".format(exc))
+        return {
+            "success": False,
+            "message": "Error fetching EMI campaigns",
+        }
+
+    if not response_data.get("success"):
+        logger.error("EMI campaigns API returned failure: {}".format(response_data))
+        return {
+            "success": False,
+            "message": "EMI campaigns API returned failure",
+        }
+
+    campaigns_data = response_data.get("data") or {}
+    today = timezone.now().strftime("%Y%m%d")
+    created_count = 0
+    updated_count = 0
+    stale_deleted_count = 0
+    stale_kept_count = 0
+    skipped_agent_count = 0
+    skipped_lead_count = 0
+
+    for agent_username, leads_data in campaigns_data.items():
+        try:
+            agent = Agent.objects.get(telecard_username=agent_username)
+        except Agent.DoesNotExist:
+            skipped_agent_count += 1
+            logger.warning("Skipping EMI campaign for unknown agent: {}".format(agent_username))
+            continue
+
+        campaign_id = "{}-emi-{}".format(agent_username, today)
+        campaign, _ = Campaign.objects.get_or_create(
+            campaign_id=campaign_id,
+            defaults={
+                "agent": agent,
+                "segment": "other",
+                "campaign_name": "{} - EMI".format(agent_username),
+                "status": "active",
+                "active": True,
+                "metadata": {"campaign_type": "rupin-emi-campaign"},
+            },
+        )
+
+        incoming_lead_ids = set()
+
+        with transaction.atomic():
+            for lead_data in leads_data or []:
+                emi_id = lead_data.get("id")
+                phone_number = normalize_phone_number(lead_data.get("phone_number"))
+
+                if emi_id is None or not phone_number:
+                    skipped_lead_count += 1
+                    logger.warning("Skipping invalid EMI lead payload: {}".format(lead_data))
+                    continue
+
+                try:
+                    emi_id = int(float(emi_id))
+                except (TypeError, ValueError):
+                    skipped_lead_count += 1
+                    logger.warning("Skipping EMI lead with invalid id: {}".format(lead_data))
+                    continue
+
+                incoming_lead_ids.add(emi_id)
+
+                lead = Lead.objects.filter(emi_id=emi_id).order_by("-created_at", "-id").first()
+                if lead:
+                    lead.campaign = campaign
+                    lead.phone_number = phone_number
+                    lead.customer_name = lead.customer_name or phone_number
+                    if not CallLog.objects.filter(lead=lead).exists():
+                        lead.status = "pending"
+
+                    lead.save()
+                    updated_count += 1
+                else:
+                    Lead.objects.create(
+                        campaign=campaign,
+                        emi_id=emi_id,
+                        phone_number=phone_number,
+                        customer_name=phone_number,
+                        status="pending",
+                    )
+                    created_count += 1
+
+            stale_leads = campaign.leads.exclude(emi_id__in=incoming_lead_ids)
+            for stale_lead in stale_leads:
+                if CallLog.objects.filter(lead=stale_lead).exists():
+                    stale_kept_count += 1
+                    continue
+
+                stale_lead.delete()
+                stale_deleted_count += 1
+
+    result = {
+        "success": True,
+        "created": created_count,
+        "updated": updated_count,
+        "stale_deleted": stale_deleted_count,
+        "stale_kept_with_call_logs": stale_kept_count,
+        "skipped_agents": skipped_agent_count,
+        "skipped_leads": skipped_lead_count,
+    }
+    logger.info("EMI campaigns sync complete: {}".format(result))
+    return result
+
+
 @app.task
 def process_telebook_csv(df_json):
     df = pd.read_json(df_json)
@@ -703,3 +821,9 @@ def process_telebook_csv(df_json):
 def day_end_routine():
     make_campaigns_inactive()
     flush_redis_data()
+
+@app.task(bind=True)
+def formdata_scheduled_task(self, lead_id):
+    lead = Lead.objects.get(id=lead_id)
+    queue_object = construct_queue_object(lead.campaign, lead)
+    add_to_priority_queue_mapping(lead.campaign.agent_id, queue_object)

@@ -7,16 +7,18 @@ from django.utils import timezone
 from django.shortcuts import render
 import orjson as json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 import pytz
-from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache
+from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache, log_agent_authentication_action
 from django.contrib.auth.decorators import login_required
 
 from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
-from .models import Agent, Lead, CallLog, Campaign
-from dialer.utils import build_originate_command, originate_call, get_disposition_mapping, active_campaigns
+from voice_orchestrator.utils import generate_presigned_s3_url
+from .models import Agent, Lead, CallLog
+from dialer.utils import build_originate_command, get_disposition_mapping, active_campaigns
+from dialer.tasks import formdata_scheduled_task
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ def agent_login(request):
             username = data.get('username')
             password = data.get('password')
         except Exception as e:
-            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+            return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
         
         user = authenticate(request, username=username, password=password)
         if user is not None:
@@ -40,6 +42,7 @@ def agent_login(request):
                 group = user.groups.first()
                 team = group.name
                 mark_agent_logged_in_cache(str(agent.id), team)
+                log_agent_authentication_action(agent.id, 'login')
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
                 campaigns = active_campaigns(agent)
@@ -88,11 +91,11 @@ def agent_login(request):
                 
                 return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents), "campaigns": campaigns})
             except Agent.DoesNotExist:
-                return JsonResponse({'error': 'Agent not found'}, status=404)
+                return JsonResponse({'success': False, 'message': 'Invalid credentials'}, status=404)
         else:
-            return JsonResponse({'error': 'Invalid credentials'}, status=401)
+            return JsonResponse({'success': False, 'message': 'Invalid credentials'}, status=401)
 
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
+    return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
 
 @login_required 
 @csrf_exempt
@@ -110,6 +113,7 @@ def logout_agent_api(request):
         result = logout_agent(agent_id)
 
         logout(request)
+        log_agent_authentication_action(agent.id, 'logout')
 
         if result:
             return JsonResponse({'status': 'success', 'agent_id': agent_id})
@@ -355,7 +359,7 @@ def poll_call_status(request, uuid):
 @require_http_methods(["GET"])
 def get_call_recording(request, uuid):
     """
-    Fetches the recording URL for a completed call.
+    Generates a short-lived recording URL for a completed call.
     
     GET /call-recordings/{uuid}
     Response: {"success": true, "recording_url": "https://..."} or {"success": false, "message": "error"}
@@ -363,6 +367,7 @@ def get_call_recording(request, uuid):
     try:
         # Get the call log
         try:
+            logger.info(uuid)
             call_log = CallLog.objects.get(call_id=uuid)
         except CallLog.DoesNotExist:
             return JsonResponse({
@@ -377,9 +382,11 @@ def get_call_recording(request, uuid):
                 'message': 'Recording not available for this call'
             }, status=404)
         
+        signed_url = generate_presigned_s3_url(call_log.recording_url)
+
         return JsonResponse({
             'success': True,
-            'recording_url': call_log.recording_url
+            'recording_url': signed_url
         })
         
     except Exception as e:
@@ -433,7 +440,11 @@ def agent_dashboard(request):
                 else:
                     log.initiated_at_karachi = None
                 log.call_uuid = log.call_id
-                log.call_recording_url = log.recording_url if log.status == 'answered' else None
+                log.has_call_recording = bool(
+                    log.status == 'answered'
+                    and log.recording_url
+                    and log.recording_url.startswith('https://')
+                )
             
             # Count unique phone numbers called
             unique_phone_count = 0
@@ -484,4 +495,170 @@ def agent_dashboard(request):
     }
     
     return render(request, 'dialer/dashboard.html', context)
+
+
+def all_call_logs_dashboard(request):
+    """
+    Dashboard view for all call logs in a Pakistan-time date/time range.
+    """
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+
+    start_date_value = request.GET.get('start_date') or now_pk.date().isoformat()
+    start_time_value = request.GET.get('start_time') or '00:00'
+    end_date_value = request.GET.get('end_date') or now_pk.date().isoformat()
+    end_time_value = request.GET.get('end_time') or now_pk.strftime('%H:%M')
+
+    call_logs = CallLog.objects.none()
+    error_message = None
+    unique_phone_count = 0
+    stats = {
+        'total_calls': 0,
+        'answered': 0,
+        'failed': 0,
+        'no_answer': 0,
+        'busy': 0,
+        'total_talk_time': 0,
+    }
+
+    try:
+        start_date = datetime.strptime(start_date_value, '%Y-%m-%d').date()
+        start_time = datetime.strptime(start_time_value, '%H:%M').time()
+        end_date = datetime.strptime(end_date_value, '%Y-%m-%d').date()
+        end_time = datetime.strptime(end_time_value, '%H:%M').time()
+
+        start_pk = karachi_tz.localize(datetime.combine(start_date, start_time))
+        end_pk = karachi_tz.localize(datetime.combine(end_date, end_time))
+
+        if start_pk > end_pk:
+            error_message = 'Start date/time cannot be after end date/time.'
+        else:
+            start_utc = start_pk.astimezone(pytz.utc)
+            end_utc = end_pk.astimezone(pytz.utc)
+
+            call_logs = CallLog.objects.filter(
+                initiated_at__gte=start_utc,
+                initiated_at__lte=end_utc,
+            ).select_related('agent__user', 'lead', 'campaign').order_by('-initiated_at')
+
+            unique_phone_set = set()
+            for log in call_logs:
+                if log.initiated_at:
+                    log.initiated_at_karachi = log.initiated_at.astimezone(karachi_tz)
+                else:
+                    log.initiated_at_karachi = None
+                log.call_uuid = log.call_id
+                log.has_call_recording = bool(
+                    log.status == 'answered'
+                    and log.recording_url
+                    and log.recording_url.startswith('https://')
+                )
+
+                if log.lead and log.lead.phone_number:
+                    unique_phone_set.add(log.lead.phone_number)
+                elif log.to_number:
+                    unique_phone_set.add(log.to_number)
+
+            unique_phone_count = len(unique_phone_set)
+            stats = {
+                'total_calls': call_logs.count(),
+                'answered': call_logs.filter(status='answered').count(),
+                'failed': call_logs.filter(status='failed').count(),
+                'no_answer': call_logs.filter(status='no_answer').count(),
+                'busy': call_logs.filter(status='busy').count(),
+                'total_talk_time': sum(log.talk_time_seconds for log in call_logs),
+            }
+    except (TypeError, ValueError):
+        error_message = 'Start and end date/time must be valid.'
+
+    context = {
+        'call_logs': call_logs,
+        'unique_phone_count': unique_phone_count,
+        'stats': stats,
+        'error_message': error_message,
+        'start_date': start_date_value,
+        'start_time': start_time_value,
+        'end_date': end_date_value,
+        'end_time': end_time_value,
+    }
+
+    return render(request, 'dialer/all_call_logs_dashboard.html', context)
     
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def formdata_submission(request):
+    data = json.loads(request.body)
+    phone_number = data.get('followup_phone_number')
+    date_value = data.get('followup_date')
+    time_value = data.get('followup_time')
+    comment = data.get('followup_comment')
+    
+    lead = Lead.objects.filter(phone_number=phone_number).order_by('-created_at').first()
+    if not lead:
+        logger.error(f'Error in Form data Submission: no lead with phone {phone_number} exists')
+        return JsonResponse({'success': False, 'message': 'Lead not found'}, status=404)
+
+    try:
+        scheduled_date = datetime.strptime(date_value, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return JsonResponse({
+            'success': False,
+            'message': 'date is required in YYYY-MM-DD format'
+        }, status=400)
+
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+    today_pk = now_pk.date()
+
+    fire_task = False
+    if scheduled_date == today_pk:
+        fire_task = True
+
+    if scheduled_date < today_pk:
+        return JsonResponse({
+            'success': False,
+            'message': 'date cannot be in the past'
+        }, status=400)
+
+    if time_value:
+        try:
+            scheduled_time = datetime.strptime(time_value, '%H:%M').time()
+        except (TypeError, ValueError):
+            return JsonResponse({
+                'success': False,
+                'message': 'time must be in HH:MM format'
+            }, status=400)
+
+        scheduled_pk = karachi_tz.localize(datetime.combine(scheduled_date, scheduled_time))
+        if scheduled_date == today_pk and scheduled_pk <= now_pk:
+            return JsonResponse({
+                'success': False,
+                'message': 'time cannot be in the past for today'
+            }, status=400)
+    else:
+        if scheduled_date == today_pk:
+            return JsonResponse({
+                'success': False,
+                'message': 'time is required for current date'
+            }, status=400)
+        scheduled_pk = now_pk + timedelta(hours=2)
+        scheduled_date = scheduled_pk.date()
+
+    scheduled_utc = scheduled_pk.astimezone(pytz.utc)
+
+    lead.follow_up_date = scheduled_date
+    lead.follow_up_time = scheduled_pk.time()
+    lead.comment = comment
+    lead.save()
+
+    if fire_task:
+        formdata_scheduled_task.apply_async(
+            args=[lead.id],
+            eta=scheduled_utc,
+        )
+
+
+    return JsonResponse({
+        'success': True
+    })

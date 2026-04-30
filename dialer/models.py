@@ -292,24 +292,6 @@ class Campaign(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Statistics
-    # called_leads = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Leads that have been dialed"
-    # )
-    # completed_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Successfully completed calls"
-    # )
-    # failed_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Failed call attempts"
-    # )
-    # no_answer_calls = models.PositiveIntegerField(
-    #     default=0,
-    #     help_text="Calls with no answer"
-    # )
-    
     # Metadata
     metadata = models.JSONField(
         default=dict,
@@ -319,35 +301,13 @@ class Campaign(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-        # indexes = [
-        #     models.Index(fields=['campaign_id']),
-        #     models.Index(fields=['agent', 'status']),
-        #     models.Index(fields=['segment', 'status']),
-        #     models.Index(fields=['status', 'created_at']),
-        # ]
         unique_together = [['agent', 'segment', 'created_at']]
     
     def __str__(self):
         return f"{self.campaign_id} ({self.segment} - {self.status})"
 
 
-class Lead(models.Model):
-    """
-    Lead model representing a customer to be called (from Udhaar marketplace).
-    
-    Stores lead/customer information imported from CSV uploads.
-    Replaces Telecard's call queue items.
-    """
-    
-    # SEGMENT_CHOICES = [
-    #     ('follow_up', 'Follow Up'),
-    #     ('active', 'Active'),
-    #     ('growth', 'Growth'),
-    #     ('active_churn', 'Active Churn'),
-    #     ('growth_churn', 'Growth Churn'),
-    #     ('acquisition', 'Acquisition'),
-    # ] since it's in campaigns
-    
+class Lead(models.Model):   
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('in_queue', 'In Queue'),
@@ -355,13 +315,7 @@ class Lead(models.Model):
         ('completed', 'Completed'),
         ('failed', 'Failed'),
         ('invalid', 'Invalid'),
-    ]
-    
-    # Unique identifiers
-    # id = models.IntegerField(
-    #     primary_key=True,
-    #     db_index=True,
-    # ) 
+    ] 
 
     udhaar_lead_id = models.IntegerField(
         null=True,
@@ -382,6 +336,13 @@ class Lead(models.Model):
         help_text="Customer phone number (normalized, e.g., 923001234567)"
     )
     
+    emi_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Unique EMI lead identifier (from Udhaar)"
+    )
+
     # Customer information
     customer_name = models.CharField(
         max_length=255,
@@ -469,7 +430,9 @@ class Lead(models.Model):
         default=False
     )
 
-
+    comment = models.CharField(max_length=255, null=True, blank=True)
+    follow_up_date = models.DateField(null=True, blank=True)
+    follow_up_time = models.TimeField(null=True, blank=True)
     
     # Metadata
     metadata = models.JSONField(
@@ -477,28 +440,6 @@ class Lead(models.Model):
         blank=True,
         help_text="Additional lead context (Active shop, personal use, category, etc.)"
     )
-
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
-    # active_shop = models.BooleanField(
-    #     default=False,
-    #     blank=True
-    # )
     
     # Timing
     created_at = models.DateTimeField(auto_now_add=True)

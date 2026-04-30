@@ -12,6 +12,8 @@ urlpatterns = [
     path('agent/logout/', views.logout_agent_api, name='agent-logout'),
     path('campaigns/active/', views.active_campaigns, name='active-campaigns'),
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
+    path('all-call-logs/', views.all_call_logs_dashboard, name='all-call-logs-dashboard'),
+    path('form-submission/', views.formdata_submission, name='form-submission'),
     
     # Call management endpoints
     path('call/', views.initiate_call, name='initiate-call'),

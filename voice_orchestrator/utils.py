@@ -12,11 +12,27 @@ from django.utils import timezone
 import datetime
 import shutil
 import subprocess
+from urllib.parse import unquote, urlparse
+
 
 _xml_lock = Lock()
 logger = logging.getLogger(__name__)
 
 DEFAULT_XML = os.path.join(settings.FS_DIR, "default.xml")
+
+def normalize_phone_number(phone_number):
+    if phone_number is None:
+        return None
+
+    normalized = str(phone_number).strip()
+    for character in (' ', '-', '(', ')'):
+        normalized = normalized.replace(character, '')
+
+    if normalized and not normalized.startswith('0'):
+        normalized = f'0{normalized}'
+
+    return normalized
+
 
 def fs_create_user(extension, password, group=None):
     # 1. Write the user XML file
@@ -139,6 +155,27 @@ def upload_call_recording(file_path: str, recording_date: date) -> str:
     url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_key}"
     return url
 
+
+def generate_presigned_s3_url(file_url: str, expires_in: int = 3600) -> str:
+    parsed_url = urlparse(file_url)
+    s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+    return s3_client.generate_presigned_url(
+        'get_object',
+        Params={
+            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+            'Key': s3_key,
+        },
+        ExpiresIn=expires_in,
+    )
+
 def upload_call_logs(file_path: str, today: date) -> str:
 
     s3_key = f"call-logs/call_logs_{today.strftime('%Y-%m-%d')}.csv"
@@ -161,6 +198,7 @@ def upload_call_logs(file_path: str, today: date) -> str:
 
 def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
     from dialer.models import CallLog
+    from dialer.udhaar_utils import UDHAAR_DISPOSITION_MAP
     try:
         # Query all call logs for today
         start_dt = timezone.make_aware(datetime.datetime.combine(start_date, datetime.time.min))
@@ -189,6 +227,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
         # Define CSV headers
         fieldnames = [
             'call_id',
+            'emi_id',
             'callType',
             'src',
             'billsec',
@@ -228,11 +267,13 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 segment = None  # default segment
                 lead_id = None
                 to_number = None
+                emi_id = None
                 if call_log.lead:
                     lead_id = call_log.lead.udhaar_lead_id
                     to_number = call_log.lead.phone_number
+                    emi_id = call_log.lead.emi_id
                     # dukaan_account_id = call_log.lead.dukaan_account_id
-                    segment = "everyday-campaign"  # default segment for all leads
+                    segment = "rupin-emi-campaign"  #TODO MAKE IT DYNAMIC default segment for all leads
                 else:
                     segment = 'rupin-emi-campaign'
                     to_number = call_log.to_number
@@ -242,17 +283,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 end_time = call_log.ended_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.ended_at else None
                 
                 # Map disposition (convert Django status to expected format)
-                disposition_map = {
-                    'answered': 'ANSWERED',
-                    'failed': 'FAILED',
-                    'no_answer': 'NO ANSWER',
-                    'busy': 'BUSY',
-                    'lose_race': 'BUSY',
-                    'user_not_registered': 'FAILED',
-                    'invalid': 'FAILED',
-                    'cancelled': 'FAILED',
-                }
-                disposition = disposition_map.get(call_log.status, call_log.status.upper())
+                disposition = UDHAAR_DISPOSITION_MAP.get(call_log.status, call_log.status.upper())
 
                 recording_url = call_log.recording_url if disposition == 'ANSWERED' else None
                 if recording_url and not recording_url.startswith(("http://", "https://")):
@@ -261,6 +292,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 # Create row
                 row = {
                     'call_id': call_log.call_id,
+                    'emi_id': emi_id,
                     'callType': call_log.call_direction.title() or '',
                     'src': "2138722005",
                     'billsec': call_log.talk_time_seconds,
