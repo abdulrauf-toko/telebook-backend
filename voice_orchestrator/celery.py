@@ -48,6 +48,10 @@ PROD_BEAT_SCHEDULE = {
     'post-emi-campaign-call-logs': {
         'task': 'events.tasks.post_emi_call_logs',
         'schedule': crontab(hour=0, minute=5),
+    },
+    'emi-campaign': {
+        'task': 'dialer.tasks.fetch_and_store_emi_campaigns',
+        'schedule': crontab(hour=4, minute=5),
     }
 }
 
