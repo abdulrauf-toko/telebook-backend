@@ -44,7 +44,7 @@ class CallLogAdmin(admin.ModelAdmin):
 # Admin for Campaign
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    # list_display = ('campaign_id', 'campaign_name', 'agent', 'segment', 'status', 'created_at')
+    list_display = ('campaign_id', 'campaign_name', 'agent', 'segment', 'created_at')
     # list_filter = ('segment', 'status', 'agent', 'created_at')
     search_fields = ('campaign_id', 'campaign_name', 'agent__extension')
     # readonly_fields = ('created_at', 'updated_at')

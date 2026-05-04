@@ -90,11 +90,6 @@ def refill_queue(agent_ids: set):
             agent_id = active_campaign.agent.id if active_campaign.agent else 0
             agent_id = str(agent_id)  # Redis keys must be strings
     
-            if agent_id not in agent_ids:
-                agent_ids.add(agent_id) 
-            else:
-                continue #skip if we've already added leads for this agent in this refill cycle
-
             if active_campaign.campaign_type == 'rupin-emi':
                 if len(leads) < 2:
                     agents_to_fetch_leads.add(agent_id)
@@ -104,6 +99,11 @@ def refill_queue(agent_ids: set):
                 selected_campaign = agent.selected_campaign
                 if selected_campaign and selected_campaign != active_campaign:
                     continue #only fill leads from selected campaign
+
+            if agent_id not in agent_ids:
+                agent_ids.add(agent_id) 
+            else:
+                continue #skip if we've already added leads for this agent in this refill cycle
 
             for lead in leads:
                 lead_ids.add(lead.id)
@@ -754,6 +754,9 @@ def construct_queue_object(campaign, lead):
             if lead.last_call_date else None
         ),
         "last_order_details": lead.last_order_details or {},
+        "follow_up_date": lead.follow_up_date,
+        "follow_up_time": lead.follow_up_time,
+        "comment": lead.comment,
         
         "metadata": lead.metadata or {},
         "enqueued_at": timezone.now().isoformat(),

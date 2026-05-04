@@ -21,5 +21,6 @@ urlpatterns = [
     path('call-recordings/<str:uuid>/', views.get_call_recording, name='get-call-recording'),
     
     # Campaign endpoints
-    
+    path('agent/campaign/activate/', views.activate_campaign, name='activate-campaign'),
+    path('agent/campaign/deactivate/', views.deactivate_campaign, name='deactivate-campaign'),
 ]

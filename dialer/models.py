@@ -117,8 +117,8 @@ class Agent(models.Model):
         if self.user is not None and not self.user.groups.exists():
             raise ValidationError("The associated user must belong to at least one group.")
 
-        if self.pk is not None and not self.teams.exists():
-            raise ValidationError("Agent must belong to at least one team.")
+        # if self.pk is not None and not self.teams.exists():
+        #     raise ValidationError("Agent must belong to at least one team.")
 
         old_agent = None
         if self.pk is not None:
@@ -126,7 +126,7 @@ class Agent(models.Model):
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            self._sync_freeswitch_user(old_agent)
+            self._sync_freeswitch_user(old_agent) 
 
     def delete(self, *args, **kwargs):
         extension = self.extension
@@ -291,7 +291,9 @@ class Campaign(models.Model):
 
     campaign_type = models.CharField(
         max_length=30,
-        choices=CAMPAIGN_TYPE_CHOICES
+        choices=CAMPAIGN_TYPE_CHOICES,
+        null=True,
+        blank=True
     )
     
     # Segment classification
@@ -327,7 +329,7 @@ class Campaign(models.Model):
         unique_together = [['agent', 'segment', 'created_at']]
     
     def __str__(self):
-        return f"{self.campaign_id} ({self.segment} - {self.status})"
+        return f"{self.campaign_id} ({self.segment})"
 
 
 class Lead(models.Model):   

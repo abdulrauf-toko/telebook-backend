@@ -94,7 +94,7 @@ def initiate_dialer_cycle(self):
 
 @app.task(bind=True)
 def fetch_and_store_telebook_campaign(self):
-    return    
+    # return    
     MAX_TRIES = 10
     POLL_INTERVAL = 45  # seconds
     POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
@@ -103,6 +103,12 @@ def fetch_and_store_telebook_campaign(self):
     # Step 1: Trigger the campaign generation
     try:
         response = requests.post(POLL_API_URL, headers=headers)
+        if not response.ok:
+            logger.error("Trigger campaign HTTP {}: {}".format(response.status_code, response.text[:500]))
+            return
+        if not response.text.strip():
+            logger.error("Trigger campaign returned empty body (HTTP {})".format(response.status_code))
+            return
         data = response.json()
         if not data.get("success"):
             logger.error("Failed to trigger campaign: {}".format(data))

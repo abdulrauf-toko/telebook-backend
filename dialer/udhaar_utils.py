@@ -29,6 +29,18 @@ def _coerce_udhaar_lead_id(value):
         return None
 
 
+def _coerce_nullable_date(value):
+    if value is None:
+        return None
+    try:
+        import pandas as pd
+        if pd.isnull(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
 def store_campaigns_from_df(df):
     # Group by agent + segment → one campaign per group
     grouped = df.groupby(["agent__telecard_username", "customer__segment"])
@@ -60,7 +72,7 @@ def store_campaigns_from_df(df):
             segment=segment,
             campaign_id=campaign_id,
             campaign_name="{} - {}".format(agent_username, segment),
-            status="active"
+            campaign_type=Campaign.CAMPAIGN_TYPE_CHOICES[0][0]
         )
 
         logger.info("Created campaign: {}".format(campaign_id))
@@ -90,9 +102,9 @@ def store_campaigns_from_df(df):
                 },
                 "month_gmv": row.get("order_value_this_month"),
                 "overall_gmv": row.get("order_value_to_date"),
-                "last_call_date": row.get("last_call_date_x") or None,
+                "last_call_date": _coerce_nullable_date(row.get("last_call_date_x")),
                 "status": "pending",
-                "follow_up_date": row.get("follow_up_date", None),
+                "follow_up_date": _coerce_nullable_date(row.get("follow_up_date")),
                 "comment": row.get("comment", None),
             }
 
@@ -153,11 +165,11 @@ def refill_emi_campaign_data(agent_ids):
         logger.warning("refill_emi_campaign_data: no agents with telecard_username found")
         return {"success": False, "error": "no agents"}
 
-    api_url = f"{UDHAAR_BASE_URL}telecard/emi-campaign-users/refill/"
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-campaign-users/today/"
     headers = {"X-API-Key": settings.API_KEY}
 
     try:
-        response = requests.post(api_url, json={"agents": telecard_usernames}, headers=headers, timeout=60)
+        response = requests.post(api_url, json={"data": {"agents": telecard_usernames}}, headers=headers, timeout=60)
         response.raise_for_status()
         response_data = response.json()
     except Exception as exc:

@@ -328,6 +328,7 @@ def daily_ending_routine():
     from dialer.utils import flush_redis_data, make_campaigns_inactive
     flush_redis_data()
     make_campaigns_inactive()
+    upload_call_logs_to_s3()
     logger.info("Daily call ending routine completed: Redis data flushed and campaigns marked inactive.")
 
 

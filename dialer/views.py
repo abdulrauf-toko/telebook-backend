@@ -16,7 +16,7 @@ from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from voice_orchestrator.utils import generate_presigned_s3_url
-from .models import Agent, Lead, CallLog
+from .models import Agent, Campaign, Lead, CallLog
 from dialer.utils import build_originate_command, get_disposition_mapping, active_campaigns
 from dialer.tasks import formdata_scheduled_task
 
@@ -46,50 +46,8 @@ def agent_login(request):
                 all_agents = Agent.objects.values('user__username', 'extension').exclude(id=agent.id)
                 all_agents = list(all_agents)
                 campaigns = active_campaigns(agent)
-
-                campaigns = [{
-                'id': 1,
-                'segment': "growth",
-                'count': 150,
-                'status': 'active',
-                "active": False
-            },
-            {
-                'id': 2,
-                'segment': "Acquisition",
-                'count': 150,
-                "active": True
-            },
-            {
-                'id': 2,
-                'segment': "Acquisition",
-                'count': 150,
-                'status': 'active',
-                "active": True
-            },
-            {
-                'id': 2,
-                'segment': "Acquisition",
-                'count': 150,
-                'status': 'active',
-                "active": True
-            },
-            {
-                'id': 2,
-                'segment': "Acquisition",
-                'count': 150,
-                'status': 'active',
-                "active": True
-            },
-            {
-                'id': 2,
-                'segment': "Acquisition",
-                'count': 1230,
-                'status': 'active',
-                "active": True
-            }]
                 
-                return JsonResponse({'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents), "campaigns": campaigns})
+                return JsonResponse({'success': True, 'extension': agent.extension, 'password': agent.freeswitch_password, 'id': agent.id, "agents_info": list(all_agents), "campaigns": campaigns})
             except Agent.DoesNotExist:
                 return JsonResponse({'success': False, 'message': 'Invalid credentials'}, status=404)
         else:
@@ -97,23 +55,19 @@ def agent_login(request):
 
     return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
 
-@login_required 
 @csrf_exempt
 @require_http_methods(["POST"])
 def logout_agent_api(request):
     try:
-        user = request.user
-        try:
-            agent = user.agent
-        except Agent.DoesNotExist:
-            return JsonResponse({'error': 'User is not an agent'}, status=400)
+        data = json.loads(request.body)
+        agent_id = data.get('agent_id')
 
-        agent_id = str(agent.id)
+        agent_id = str(agent_id)
 
         result = logout_agent(agent_id)
 
         logout(request)
-        log_agent_authentication_action(agent.id, 'logout')
+        log_agent_authentication_action(int(agent_id), 'logout')
 
         if result:
             return JsonResponse({'status': 'success', 'agent_id': agent_id})
@@ -585,14 +539,73 @@ def all_call_logs_dashboard(request):
     
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def activate_campaign(request):
+    try:
+        data = json.loads(request.body)
+        campaign_pk = data.get('id')
+        agent_id = data.get('agent_id')
+
+        if not campaign_pk or not agent_id:
+            return JsonResponse({'success': False, 'message': 'id and agent_id are required'}, status=400)
+
+        try:
+            agent = Agent.objects.get(id=agent_id)
+        except Agent.DoesNotExist:
+            return JsonResponse({'success': False, 'message': 'Agent not found'}, status=404)
+
+        try:
+            campaign = Campaign.objects.get(id=campaign_pk, agent=agent)
+        except Campaign.DoesNotExist:
+            return JsonResponse({'success': False, 'message': 'Campaign not found'}, status=404)
+
+        Agent.objects.filter(id=agent_id).update(selected_campaign=campaign)
+
+        return JsonResponse({
+            'success': True,
+            'campaign': {
+                'id': campaign.id,
+                'campaign_id': campaign.campaign_id,
+                'campaign_name': campaign.campaign_name,
+                'segment': campaign.segment,
+            }
+        })
+
+    except Exception as e:
+        logger.exception(f"Error activating campaign: {e}")
+        return JsonResponse({'success': False, 'message': 'Internal server error'}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def deactivate_campaign(request):
+    try:
+        data = json.loads(request.body)
+        agent_id = data.get('agent_id')
+
+        if not agent_id:
+            return JsonResponse({'success': False, 'message': 'agent_id is required'}, status=400)
+
+        updated = Agent.objects.filter(id=agent_id).update(selected_campaign=None)
+        if not updated:
+            return JsonResponse({'success': False, 'message': 'Agent not found'}, status=404)
+
+        return JsonResponse({'success': True})
+
+    except Exception as e:
+        logger.exception(f"Error deactivating campaign: {e}")
+        return JsonResponse({'success': False, 'message': 'Internal server error'}, status=500)
+
+
+@csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def formdata_submission(request):
     data = json.loads(request.body)
     phone_number = data.get('followup_phone_number')
     date_value = data.get('followup_date')
     time_value = data.get('followup_time')
-    comment = data.get('followup_comment')
-    
+    comment = data.get('followup_comments')
+
     lead = Lead.objects.filter(phone_number=phone_number).order_by('-created_at').first()
     if not lead:
         logger.error(f'Error in Form data Submission: no lead with phone {phone_number} exists')
@@ -641,17 +654,15 @@ def formdata_submission(request):
                 'success': False,
                 'message': 'time is required for current date'
             }, status=400)
-        scheduled_pk = now_pk + timedelta(hours=2)
-        scheduled_date = scheduled_pk.date()
-
-    scheduled_utc = scheduled_pk.astimezone(pytz.utc)
+        scheduled_pk = None
 
     lead.follow_up_date = scheduled_date
-    lead.follow_up_time = scheduled_pk.time()
+    lead.follow_up_time = scheduled_pk.time() if scheduled_pk else None
     lead.comment = comment
     lead.save()
 
     if fire_task:
+        scheduled_utc = scheduled_pk.astimezone(pytz.utc)
         formdata_scheduled_task.apply_async(
             args=[lead.id],
             eta=scheduled_utc,
@@ -661,3 +672,5 @@ def formdata_submission(request):
     return JsonResponse({
         'success': True
     })
+
+
