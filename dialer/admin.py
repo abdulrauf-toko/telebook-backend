@@ -3,7 +3,7 @@ from django.contrib import admin
 # Register your models here.
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Agent, CallLog, Campaign, Lead
+from .models import Agent, CallLog, Campaign, Lead, Team
 
 # Inline for CallLog in Agent admin
 class CallLogInline(admin.TabularInline):
@@ -19,11 +19,17 @@ class LeadInline(admin.TabularInline):
     readonly_fields = ('customer_name', 'phone_number', 'status', 'attempt_count')
     fields = ('customer_name', 'phone_number', 'status', 'attempt_count', 'created_at')
 
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'created_at')
+    search_fields = ('name',)
+
 # Admin for Agent
 @admin.register(Agent)
 class AgentAdmin(admin.ModelAdmin):
     list_display = ('id', 'is_active', 'created_at')
-    list_filter = ('is_active', 'created_at')
+    list_filter = ('is_active', 'teams', 'created_at')
+    filter_horizontal = ('teams',)
     # inlines = [CallLogInline]
 
 # Admin for CallLog
@@ -38,7 +44,7 @@ class CallLogAdmin(admin.ModelAdmin):
 # Admin for Campaign
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    # list_display = ('campaign_id', 'campaign_name', 'agent', 'segment', 'status', 'created_at')
+    list_display = ('campaign_id', 'campaign_name', 'agent', 'segment', 'created_at')
     # list_filter = ('segment', 'status', 'agent', 'created_at')
     search_fields = ('campaign_id', 'campaign_name', 'agent__extension')
     # readonly_fields = ('created_at', 'updated_at')

@@ -7,10 +7,22 @@ Models for managing agents, campaigns, calls, and dialer configurations.
 from django.conf import settings
 from django.db import models, transaction
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator, MaxValueValidator
-from django.utils import timezone
 from voice_orchestrator.utils import fs_create_user, fs_delete_user
+from django.core.exceptions import ValidationError
 import uuid
+
+
+class Team(models.Model):
+    NAME_CHOICES = [
+        ('saddar_growth', "Saddar Growth"),
+        ('rupin_emi', "Rupin EMI"),
+    ]
+
+    name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
 
 
 class Agent(models.Model):
@@ -44,6 +56,21 @@ class Agent(models.Model):
 
     udhaar_username = models.CharField(
         max_length=50, null=True, blank=True
+    )
+
+    teams = models.ManyToManyField(
+        Team,
+        blank=True,
+        related_name='agents',
+    )
+
+    selected_campaign = models.ForeignKey(
+        'Campaign',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='selected_agents',
+        help_text="Currently selected campaign for this agent"
     )
     
     # Metadata
@@ -87,13 +114,19 @@ class Agent(models.Model):
         fs_create_user(self.extension, self.freeswitch_password, current_group)
 
     def save(self, *args, **kwargs):
+        if self.user is not None and not self.user.groups.exists():
+            raise ValidationError("The associated user must belong to at least one group.")
+
+        # if self.pk is not None and not self.teams.exists():
+        #     raise ValidationError("Agent must belong to at least one team.")
+
         old_agent = None
         if self.pk is not None:
             old_agent = Agent.objects.filter(pk=self.pk).first()
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            self._sync_freeswitch_user(old_agent)
+            self._sync_freeswitch_user(old_agent) 
 
     def delete(self, *args, **kwargs):
         extension = self.extension
@@ -223,6 +256,21 @@ class Campaign(models.Model):
         ('completed', 'Completed'),
         ('archived', 'Archived'),
     ]
+
+    CAMPAIGN_TYPE_CHOICES = [
+        ('saddar_growth', 'Saddar Growth'), #every day campaign for saddar
+        ('rupin_emi', 'Rupin EMI') #rupin emi followups. 
+    ]
+
+    SEGMENT_CHOICES = [
+        ('follow_up', 'Follow Up'),
+        ('active', 'Active'),
+        ('growth', 'Growth'),
+        ('active_churn', 'Active Churn'),
+        ('growth_churn', 'Growth Churn'),
+        ('acquisition', 'Acquisition'),
+        ('other', 'Other'), 
+    ]
     
     campaign_id = models.CharField(
         max_length=100,
@@ -240,19 +288,18 @@ class Campaign(models.Model):
     active = models.BooleanField(
         default=True
     )
+
+    campaign_type = models.CharField(
+        max_length=30,
+        choices=CAMPAIGN_TYPE_CHOICES,
+        null=True,
+        blank=True
+    )
     
     # Segment classification
     segment = models.CharField(
         max_length=50,
-        choices=[
-            ('follow_up', 'Follow Up'),
-            ('active', 'Active'),
-            ('growth', 'Growth'),
-            ('active_churn', 'Active Churn'),
-            ('growth_churn', 'Growth Churn'),
-            ('acquisition', 'Acquisition'),
-            ('other', 'Other'),
-        ],
+        choices=SEGMENT_CHOICES,
         db_index=True,
         help_text="Lead segment classification"
     )
@@ -266,23 +313,8 @@ class Campaign(models.Model):
         help_text="Assigned agent (telesales representative)"
     )
     
-    # Status & scheduling
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        db_index=True
-    )
-    
-    duration_days = models.PositiveIntegerField(
-        default=1,
-        validators=[MinValueValidator(1), MaxValueValidator(365)],
-        help_text="Campaign duration in days"
-    )
-    
     # Timing
     created_at = models.DateTimeField(auto_now_add=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     # Metadata
@@ -290,14 +322,14 @@ class Campaign(models.Model):
         default=dict,
         blank=True,
         help_text="Additional campaign context (campaign type, filters, etc.)"
-    )
+    ) #not used atm
     
     class Meta:
         ordering = ['-created_at']
         unique_together = [['agent', 'segment', 'created_at']]
     
     def __str__(self):
-        return f"{self.campaign_id} ({self.segment} - {self.status})"
+        return f"{self.campaign_id} ({self.segment})"
 
 
 class Lead(models.Model):   
@@ -322,18 +354,18 @@ class Lead(models.Model):
         blank=True,
         help_text="Dukaan account identifier"
     )
-
-    phone_number = models.CharField(
-        max_length=20,
-        db_index=True,
-        help_text="Customer phone number (normalized, e.g., 923001234567)"
-    )
     
     emi_id = models.IntegerField(
         null=True,
         blank=True,
         db_index=True,
         help_text="Unique EMI lead identifier (from Udhaar)"
+    )
+
+    phone_number = models.CharField(
+        max_length=20,
+        db_index=True,
+        help_text="Customer phone number (normalized, e.g., 923001234567)"
     )
 
     # Customer information

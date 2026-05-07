@@ -11,11 +11,11 @@ import requests
 from voice_orchestrator.celery import app
 from django.utils import timezone
 from django.conf import settings
-from dialer.models import CallLog, Agent, Lead
+from dialer.models import CallLog, Lead
 from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, normalize_phone_number, upload_call_logs, upload_call_recording
-from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, sync_to_db_wrapper, transfer_call, update_active_call_in_cache, transfer_agent_to_call, mark_agent_idle_in_cache, map_call_status, call_ending_routine, handle_free_agent, add_customer_to_waiting_queue, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
-from dialer.utils import get_next_available_secondary_sales_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, add_call_to_completed_list, get_and_clear_completed_calls, get_next_available_support_agent, get_next_available_sales_agent
+from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, upload_call_logs, upload_call_recording
+from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, update_active_call_in_cache, map_call_status, call_ending_routine, handle_free_agent, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
+from dialer.utils import get_next_available_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, get_and_clear_completed_calls
 from dialer.udhaar_utils import get_emi_call_logs, UDHAAR_BASE_URL
 from websocket.utils import push_agent_event
 
@@ -82,9 +82,9 @@ def dispatch_event_handler(event) -> str:
                                 else: #if not idle, disconnect call and add lead back to queue
                                     disconnect_call(variable_uuid, cause="LOSE_RACE")
                             else: #aquisition calls with no agents
-                                agent_id = get_next_available_sales_agent()
+                                agent_id = get_next_available_agent('sales')
                                 if not agent_id:
-                                    agent_id = get_next_available_secondary_sales_agent()
+                                    agent_id = get_next_available_agent('secondary_sales')
                                 if agent_id:
                                     connect_agent_to_call(agent_id, variable_uuid, variable_call_id)
                                 else:
@@ -127,9 +127,9 @@ def dispatch_event_handler(event) -> str:
             #         selection = event.headers.get('variable_ivr_choice')
             #         uuid = event.headers.get('Unique-ID')
             #         if selection == "1": #support
-            #             agent_id = get_next_available_support_agent()
+            #             agent_id = get_next_available_agent('support')
             #         elif selection == "2": #sales
-            #             agent_id = get_next_available_secondary_sales_agent()
+            #             agent_id = get_next_available_agent('secondary_sales')
             #         else:
             #             logger.error('invalid ivr choice')
             #             return
@@ -286,7 +286,7 @@ def waiting_room_task():
             # Check support team waiting queue
             support_customer = get_next_customer_waiting_in_queue('support')
             if support_customer:
-                agent_id = get_next_available_support_agent()
+                agent_id = get_next_available_agent('support')
                 if agent_id:
                     mark_agent_busy_in_cache(agent_id, support_customer)
                     connect_agent_to_call(agent_id, support_customer)
@@ -296,7 +296,7 @@ def waiting_room_task():
             # Check secondary_sales team waiting queue
             secondary_sales_customer = get_next_customer_waiting_in_queue('secondary_sales')
             if secondary_sales_customer:
-                agent_id = get_next_available_secondary_sales_agent()
+                agent_id = get_next_available_agent('secondary_sales')
                 if agent_id:
                     mark_agent_busy_in_cache(agent_id, secondary_sales_customer)
                     connect_agent_to_call(agent_id, secondary_sales_customer)
@@ -328,6 +328,7 @@ def daily_ending_routine():
     from dialer.utils import flush_redis_data, make_campaigns_inactive
     flush_redis_data()
     make_campaigns_inactive()
+    upload_call_logs_to_s3()
     logger.info("Daily call ending routine completed: Redis data flushed and campaigns marked inactive.")
 
 
@@ -389,3 +390,8 @@ def post_emi_call_logs():
         logger.exception("post_emi_call_logs: failed to post call logs: {}".format(exc))
         return {"success": False, "error": str(exc)}
     
+
+@app.task
+def daily_start_routine():
+    from dialer.utils import create_emi_campaigns
+    create_emi_campaigns()

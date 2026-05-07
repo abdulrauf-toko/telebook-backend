@@ -1,6 +1,8 @@
 from .models import Agent, Campaign, Lead, CallLog
 from django.utils import timezone
 import logging
+import requests
+from django.conf import settings
 from voice_orchestrator.utils import normalize_phone_number
 from collections import defaultdict
 
@@ -25,6 +27,18 @@ def _coerce_udhaar_lead_id(value):
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_nullable_date(value):
+    if value is None:
+        return None
+    try:
+        import pandas as pd
+        if pd.isnull(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def store_campaigns_from_df(df):
@@ -58,7 +72,7 @@ def store_campaigns_from_df(df):
             segment=segment,
             campaign_id=campaign_id,
             campaign_name="{} - {}".format(agent_username, segment),
-            status="active"
+            campaign_type=Campaign.CAMPAIGN_TYPE_CHOICES[0][0]
         )
 
         logger.info("Created campaign: {}".format(campaign_id))
@@ -88,9 +102,9 @@ def store_campaigns_from_df(df):
                 },
                 "month_gmv": row.get("order_value_this_month"),
                 "overall_gmv": row.get("order_value_to_date"),
-                "last_call_date": row.get("last_call_date_x") or None,
+                "last_call_date": _coerce_nullable_date(row.get("last_call_date_x")),
                 "status": "pending",
-                "follow_up_date": row.get("follow_up_date", None),
+                "follow_up_date": _coerce_nullable_date(row.get("follow_up_date")),
                 "comment": row.get("comment", None),
             }
 
@@ -143,52 +157,61 @@ def store_campaigns_from_df(df):
             )
         )
 
+def refill_emi_campaign_data(agent_ids):
+    agents = Agent.objects.filter(telecard_username__isnull=False, id__in=agent_ids).exclude(telecard_username='')
+    telecard_usernames = list(agents.values_list('telecard_username', flat=True))
 
-def store_campaigns_from_csv(csv_path):
-    import csv
-    from django.utils import timezone
+    if not telecard_usernames:
+        logger.warning("refill_emi_campaign_data: no agents with telecard_username found")
+        return {"success": False, "error": "no agents"}
 
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-campaign-users/today/"
+    headers = {"X-API-Key": settings.API_KEY}
 
-    # Group by name + segment
-    grouped = {}
-    for row in rows:
-        key = (row['name'], row['segment'])
-        if key not in grouped:
-            grouped[key] = []
-        grouped[key].append(row)
+    try:
+        response = requests.post(api_url, json={"data": {"agents": telecard_usernames}}, headers=headers, timeout=60)
+        response.raise_for_status()
+        response_data = response.json()
+    except Exception as exc:
+        logger.exception("refill_emi_campaign_data: API call failed: {}".format(exc))
+        return {"success": False, "error": str(exc)}
 
-    for (name, segment), group_rows in grouped.items():
-        # Get or create campaign for this name + segment
-        campaign_id = "{}-{}-{}".format(
-            name, segment, timezone.now().strftime("%Y%m%d")
-        )
+    if not response_data.get("success"):
+        logger.error("refill_emi_campaign_data: API returned failure: {}".format(response_data))
+        return {"success": False, "error": "API returned failure"}
 
-        agent = Agent.objects.get(telecard_username=name)
-        campaign = Campaign.objects.create(
-            agent=agent,
-            segment='acquisition',
-            campaign_id=campaign_id,
-            campaign_name="{} - {}".format(name, segment),
-            status="active"
-        )
-        logger.info("Created campaign: {}".format(campaign_id))
+    agent_by_username = {a.telecard_username: a for a in agents}
+    total_created = 0
 
-        # Create leads for this campaign
+    for telecard_username, leads_data in response_data.get("data", {}).items():
+        agent = agent_by_username.get(telecard_username)
+        if not agent:
+            logger.warning("refill_emi_campaign_data: no agent for username {}".format(telecard_username))
+            continue
+
+        campaign = Campaign.objects.filter(agent=agent, active=True).first()
+        if not campaign:
+            logger.error(f"No active campaign found for agent: {agent.user.get_full_name()}")
+            continue
+
         leads_to_create = []
-        for row in group_rows:
-            leads_to_create.append(Lead(
-                campaign=campaign,
-                udhaar_lead_id=row['dukaan_account_id'],
-                phone_number=str(row['number']),
-                customer_name=str(row['name']),
-                status="pending",
-            ))
+        for entry in leads_data:
+            emi_id = entry.get("id")
+            phone_number = normalize_phone_number(str(entry.get("phone_number", "")))
+
+            if not Lead.objects.filter(emi_id=emi_id, campaign=campaign).exists():
+                leads_to_create.append(Lead(
+                    campaign=campaign,
+                    emi_id=emi_id,
+                    phone_number=phone_number,
+                    customer_name=phone_number,
+                    status="pending",
+                ))
 
         Lead.objects.bulk_create(leads_to_create, ignore_conflicts=True)
-        logger.info("Created {} leads for campaign {}".format(len(leads_to_create), campaign_id))
+        total_created += len(leads_to_create)
+
+    return {"success": True, "total_leads_created": total_created}
 
 
 def get_emi_call_logs(date):

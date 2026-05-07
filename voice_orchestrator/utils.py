@@ -156,6 +156,21 @@ def upload_call_recording(file_path: str, recording_date: date) -> str:
     return url
 
 
+def delete_s3_file(file_url: str) -> bool:
+    parsed_url = urlparse(file_url)
+    s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+    s3_client.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key)
+    return True
+
+
 def generate_presigned_s3_url(file_url: str, expires_in: int = 3600) -> str:
     parsed_url = urlparse(file_url)
     s3_key = unquote(parsed_url.path.lstrip('/')) if parsed_url.scheme else file_url.lstrip('/')
@@ -204,25 +219,16 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
         start_dt = timezone.make_aware(datetime.datetime.combine(start_date, datetime.time.min))
         end_dt   = timezone.make_aware(datetime.datetime.combine(end_date,   datetime.time.max))
 
+        EXCLUDE_DISCONNECT_REASONS = {'LOSE_RACE', 'USER_NOT_REGISTERED', 'ORIGINATOR_CANCEL'}
+
         all_call_logs = CallLog.objects.filter(
             initiated_at__gte=start_dt,
             initiated_at__lte=end_dt,
+        ).exclude(
+            disconnect_reason__in=EXCLUDE_DISCONNECT_REASONS, # call is retried in this case. 
         ).select_related('agent', 'agent__user', 'lead', 'campaign').order_by('to_number', '-initiated_at')
-        
-        # Group by phone number and keep only the latest call
-        latest_calls_dict = {}
-        for call_log in all_call_logs:
-            if call_log.lead:
-                phone_number = call_log.lead.phone_number
-                if phone_number not in latest_calls_dict:
-                    latest_calls_dict[phone_number] = call_log
-            else:
-                phone_number = call_log.to_number
-                if phone_number.startswith("03") and phone_number not in latest_calls_dict:
-                    latest_calls_dict[phone_number] = call_log
 
-        
-        call_logs = latest_calls_dict.values()
+        call_logs = all_call_logs
         
         # Define CSV headers
         fieldnames = [
@@ -243,7 +249,9 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
             'dialTime',
             'segment',
             'name',
-            "link"
+            "link",
+            "followup_date",
+            "comment"
         ]
         
         # Set default output path if not provided
@@ -272,10 +280,18 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     lead_id = call_log.lead.udhaar_lead_id
                     to_number = call_log.lead.phone_number
                     emi_id = call_log.lead.emi_id
+                    follow_up_date = call_log.lead.follow_up_date
+                    comment = call_log.lead.comment
                     # dukaan_account_id = call_log.lead.dukaan_account_id
-                    segment = "rupin-emi-campaign"  #TODO MAKE IT DYNAMIC default segment for all leads
+                    campaign = call_log.lead.campaign
+                    if campaign and campaign.campaign_type == 'rupin_emi':
+                        segment = "rupin-emi-campaign"
+                    else:
+                        segment = "everyday-campaign" 
                 else:
-                    segment = 'rupin-emi-campaign'
+                    segment = None
+                    follow_up_date = None
+                    comment = None
                     to_number = call_log.to_number
                 
                 # Format timestamps
@@ -283,7 +299,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                 end_time = call_log.ended_at.strftime('%Y-%m-%d %H:%M:%S') if call_log.ended_at else None
                 
                 # Map disposition (convert Django status to expected format)
-                disposition = UDHAAR_DISPOSITION_MAP.get(call_log.status, call_log.status.upper())
+                disposition = UDHAAR_DISPOSITION_MAP.get(call_log.status, "FAILED")
 
                 recording_url = call_log.recording_url if disposition == 'ANSWERED' else None
                 if recording_url and not recording_url.startswith(("http://", "https://")):
@@ -308,12 +324,14 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     'dialTime': dial_time,
                     'segment': segment,
                     'name': agent_name,
+                    'followup_date': follow_up_date,
+                    'comment': comment,
                     'link': recording_url,
                 }
                 
                 writer.writerow(row)
         
-        logger.info(f"Successfully exported {len(latest_calls_dict)} unique phone numbers (call logs) to {output_path}")
+        logger.info(f"Successfully exported {call_logs.count()} call logs to {output_path}")
         return output_path
         
     except Exception as e:

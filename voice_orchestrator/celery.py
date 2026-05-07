@@ -33,10 +33,6 @@ PROD_BEAT_SCHEDULE = {
         'task': 'dialer.tasks.initiate_dialer_cycle',
         'schedule': 30.0,
     },
-    'export-call-logs-daily': {
-        'task': 'events.tasks.upload_call_logs_to_s3',
-        'schedule': crontab(hour=19, minute=0),
-    },
     'end-routine-daily': {
         'task': 'events.tasks.daily_ending_routine',
         'schedule': crontab(hour=19, minute=45),
@@ -45,12 +41,8 @@ PROD_BEAT_SCHEDULE = {
         'task': 'events.tasks.upload_days_call_recordings_to_s3_task',
         'schedule': crontab(hour=17, minute=0),
     },
-    'post-emi-campaign-call-logs': {
-        'task': 'events.tasks.post_emi_call_logs',
-        'schedule': crontab(hour=0, minute=5),
-    },
-    'emi-campaign': {
-        'task': 'dialer.tasks.fetch_and_store_emi_campaigns',
+    "day-start-routine": {
+        'task': 'events.tasks.daily_start_routine',
         'schedule': crontab(hour=4, minute=5),
     }
 }
