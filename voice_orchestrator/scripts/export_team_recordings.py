@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Export call recordings for a team on a specific date, organised by agent.
+Export call recordings on a specific date, organised by agent folder.
 
 Usage:
-    python export_team_recordings.py <team_name> <date>
+    # All agents in a team
+    python export_team_recordings.py <date> --team <team_name>
+
+    # Single agent by Django username
+    python export_team_recordings.py <date> --username <username>
 
 Examples:
-    python export_team_recordings.py saddar_growth 2026-05-07
-    python export_team_recordings.py rupin_emi 2026-04-01
+    python export_team_recordings.py 2026-05-07 --team saddar_growth
+    python export_team_recordings.py 2026-05-07 --username john_doe
 
 Recordings (answered calls only) are saved to:
     /home/pbx/recordings_export/<date>/<agent_name>/
-
-S3 URLs are downloaded via HTTP; local paths are copied from disk.
 """
 
+import argparse
 import os
 import re
 import shutil
@@ -100,33 +103,10 @@ def _copy(src_path: str, dest_path: str) -> bool:
         return False
 
 
-def export_team_recordings(team_name: str, date_str: str) -> None:
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        print(f"ERROR: Invalid date '{date_str}'. Expected YYYY-MM-DD.")
-        sys.exit(1)
-
-    try:
-        team = Team.objects.get(name=team_name)
-    except Team.DoesNotExist:
-        valid = [c[0] for c in Team.NAME_CHOICES]
-        print(f"ERROR: Team '{team_name}' not found. Valid names: {', '.join(valid)}")
-        sys.exit(1)
-
-    agents = team.agents.select_related("user").all()
-    if not agents.exists():
-        print(f"No agents found for team '{team_name}'.")
-        return
-
-    start_dt = timezone.make_aware(datetime.combine(target_date, time.min))
-    end_dt = timezone.make_aware(datetime.combine(target_date, time.max))
-
+def _export_agents(agents, date_str: str, start_dt, end_dt) -> None:
     total_downloaded = 0
     total_skipped = 0
     total_errors = 0
-
-    print(f"Team: {team_name}  |  Date: {date_str}  |  Agents: {agents.count()}")
 
     for agent in agents:
         call_logs = (
@@ -167,13 +147,6 @@ def export_team_recordings(team_name: str, date_str: str) -> None:
                 ok = _download(recording_url, dest_path)
             else:
                 ok = False
-            #     src_path = _resolve_local_path(recording_url)
-            #     if not src_path or not os.path.exists(src_path):
-            #         print(f"    SKIP  {dest_filename}  (local file not found: {src_path})")
-            #         total_skipped += 1
-            #         continue
-            #     print(f"    COPY  {dest_filename}")
-            #     ok = _copy(src_path, dest_path)
 
             if ok:
                 total_downloaded += 1
@@ -188,9 +161,47 @@ def export_team_recordings(team_name: str, date_str: str) -> None:
         print(f"  Output:  {os.path.join(EXPORT_ROOT, date_str)}/")
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print(__doc__)
+def export_recordings(date_str: str, team_name: str | None = None, username: str | None = None) -> None:
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        print(f"ERROR: Invalid date '{date_str}'. Expected YYYY-MM-DD.")
         sys.exit(1)
 
-    export_team_recordings(sys.argv[1], sys.argv[2])
+    start_dt = timezone.make_aware(datetime.combine(target_date, time.min))
+    end_dt = timezone.make_aware(datetime.combine(target_date, time.max))
+
+    if username:
+        try:
+            agent = Agent.objects.select_related("user").get(user__username=username)
+        except Agent.DoesNotExist:
+            print(f"ERROR: No agent found with username '{username}'.")
+            sys.exit(1)
+        print(f"Username: {username}  |  Date: {date_str}")
+        _export_agents([agent], date_str, start_dt, end_dt)
+    else:
+        try:
+            team = Team.objects.get(name=team_name)
+        except Team.DoesNotExist:
+            valid = [c[0] for c in Team.NAME_CHOICES]
+            print(f"ERROR: Team '{team_name}' not found. Valid names: {', '.join(valid)}")
+            sys.exit(1)
+
+        agents = team.agents.select_related("user").all()
+        if not agents.exists():
+            print(f"No agents found for team '{team_name}'.")
+            return
+
+        print(f"Team: {team_name}  |  Date: {date_str}  |  Agents: {agents.count()}")
+        _export_agents(agents, date_str, start_dt, end_dt)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Export call recordings by team or agent.")
+    parser.add_argument("date", help="Date in YYYY-MM-DD format")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--team", metavar="TEAM_NAME", help="Team name (e.g. saddar_growth)")
+    group.add_argument("--username", metavar="USERNAME", help="Django username of a specific agent")
+
+    args = parser.parse_args()
+    export_recordings(args.date, team_name=args.team, username=args.username)
