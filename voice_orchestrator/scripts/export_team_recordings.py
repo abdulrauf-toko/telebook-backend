@@ -20,6 +20,7 @@ import re
 import shutil
 import sys
 from datetime import datetime, time
+from urllib.parse import urlparse
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "voice_orchestrator.settings")
 
@@ -27,7 +28,8 @@ import django
 
 django.setup()
 
-import requests
+import boto3
+from django.conf import settings
 from django.utils import timezone
 
 from dialer.models import Agent, CallLog, Team
@@ -61,13 +63,28 @@ def _resolve_local_path(recording_value: str) -> str | None:
     return os.path.join(RECORDINGS_ROOT, recording_value.lstrip("/"))
 
 
+def _parse_s3_url(url: str) -> tuple[str, str]:
+    """Return (bucket, key) from a virtual-hosted S3 URL."""
+    parsed = urlparse(url)
+    # netloc: {bucket}.s3.{region}.amazonaws.com
+    bucket = parsed.netloc.split(".s3.")[0]
+    key = parsed.path.lstrip("/")
+    return bucket, key
+
+
+def _s3_client():
+    return boto3.client(
+        "s3",
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+    )
+
+
 def _download(url: str, dest_path: str) -> bool:
     try:
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()
-        with open(dest_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        bucket, key = _parse_s3_url(url)
+        _s3_client().download_file(bucket, key, dest_path)
         return True
     except Exception as exc:
         print(f"    ERROR downloading {url}: {exc}")
