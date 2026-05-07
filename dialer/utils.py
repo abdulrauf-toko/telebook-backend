@@ -31,20 +31,34 @@ def check_and_refill_queue():
     """
     try:
         raw = conn.hgetall(AGENT_LEAD_MAPPING_REDIS_KEY)
+
         mapping_queue = {
-            agent_id: json.loads(leads_json)
+            int(agent_id): json.loads(leads_json)
             for agent_id, leads_json in raw.items()
         }
+
+        # all active/logged-in agents
+        all_logged_in_agents = conn.hgetall(AGENT_STATE_REDIS_KEY)
+        active_agents = {int(agent_id) for agent_id in all_logged_in_agents.keys()}
+
         agent_ids_to_refill = set()
+
+        # CASE 1: no mapping exists at all
         if not mapping_queue:
-            all_logged_in_agents = conn.hgetall(AGENT_STATE_REDIS_KEY)
-            agent_ids_to_refill = {int(agent_id) for agent_id in all_logged_in_agents.keys()}
+            agent_ids_to_refill = active_agents
+
         else:
-            for agent_id, leads in mapping_queue.items():
-                if len(leads) < QUEUE_REFILL_THRESHOLD:
-                    agent_ids_to_refill.add(int(agent_id))
-            
-        if agent_ids_to_refill:    
+            # CASE 2: agents with low queue
+            for agent_id in active_agents:
+                leads = mapping_queue.get(agent_id)
+
+                # missing mapping OR empty/low queue
+                if not leads or len(leads) < QUEUE_REFILL_THRESHOLD:
+                    agent_ids_to_refill.add(agent_id)
+
+        logger.info(agent_ids_to_refill)
+
+        if agent_ids_to_refill:
             refill_queue(agent_ids=agent_ids_to_refill)
         
     except Exception as exc:
@@ -72,16 +86,20 @@ def refill_queue(agent_ids: set):
         )
         active_campaigns = (
             Campaign.objects
-            .filter(active=True, leads__status='pending')
+            .filter(
+                active=True
+            )
             .filter(Q(agent_id__in=agent_ids) | Q(agent_id__isnull=True))
             .annotate(segment_rank=segment_order)
             .order_by('segment_rank')
             .distinct()
         )
 
+        logger.info(active_campaigns)
+
         new_queue = defaultdict(list)
         lead_ids = set()
-        agent_ids = set()  # Track agents for whom we're adding leads to the queue
+        agent_ids_temp = set()  # Track agents for whom we're adding leads to the queue
         agents_to_fetch_leads = set()
 
         for active_campaign in active_campaigns:
@@ -89,9 +107,11 @@ def refill_queue(agent_ids: set):
             count = 0
             agent_id = active_campaign.agent.id if active_campaign.agent else 0
             agent_id = str(agent_id)  # Redis keys must be strings
+
+            logger.info(f"loop: {active_campaign}, {len(leads)}")
     
-            if active_campaign.campaign_type == 'rupin-emi':
-                if len(leads) < 2:
+            if active_campaign.campaign_type == 'rupin_emi':
+                if len(leads.filter(status='pending')) < 2:
                     agents_to_fetch_leads.add(agent_id)
 
             if agent_id != 0:
@@ -100,12 +120,15 @@ def refill_queue(agent_ids: set):
                 if selected_campaign and selected_campaign != active_campaign:
                     continue #only fill leads from selected campaign
 
-            if agent_id not in agent_ids:
-                agent_ids.add(agent_id) 
-            else:
-                continue #skip if we've already added leads for this agent in this refill cycle
+            if agent_id in agent_ids_temp:
+                continue 
+
+            add = False
+             #skip if we've already added leads for this agent in this refill cycle
 
             for lead in leads:
+                add=True
+                logger.info(f"lead: {lead}")
                 lead_ids.add(lead.id)
                 queue_object = construct_queue_object(active_campaign, lead)
                 count += 1
@@ -123,6 +146,10 @@ def refill_queue(agent_ids: set):
                 if count >= 6:
                     break  # Limit to 6 leads per campaign to avoid outdated leads. 
 
+            if add:
+                agent_ids_temp.add(agent_id)
+
+        logger.info(f'AGENTS {str(agents_to_fetch_leads)}')
         if agents_to_fetch_leads:
             refill_emi_campaign_data(agents_to_fetch_leads)
 
