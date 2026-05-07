@@ -132,9 +132,9 @@ def _export_agents(agents, date_str: str, start_dt, end_dt) -> None:
 
         for log in call_logs.iterator():
             recording_url = log.recording_url
-            bare_url = recording_url.split("?")[0]
-            ext = os.path.splitext(bare_url)[1] or ".wav"
-            dest_filename = f"{log.call_id}{ext}"
+            original_filename = os.path.basename(recording_url.split("?")[0]) or f"{log.call_id}.wav"
+            phone = re.sub(r"[^\w\-]", "", log.to_number or "unknown")
+            dest_filename = f"{folder_name}_{phone}_{original_filename}"
             dest_path = os.path.join(dest_dir, dest_filename)
 
             if os.path.exists(dest_path):
