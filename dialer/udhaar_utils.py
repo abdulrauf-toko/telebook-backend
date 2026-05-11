@@ -90,6 +90,18 @@ def store_campaigns_from_df(df):
 
             phone_number = normalize_phone_number(str(row["number"]))
 
+            follow_up_date = row.get("follow_up_date")
+            import pandas as pd
+            if pd.isna(follow_up_date):
+                follow_up_date = None
+            else:
+                follow_up_date = None
+
+            if pd.isna(follow_up_date):
+                follow_up_date = None
+            else:
+                follow_up_date = None
+
             lead_defaults = {
                 "campaign": campaign,
                 "phone_number": phone_number,
@@ -104,7 +116,7 @@ def store_campaigns_from_df(df):
                 "overall_gmv": row.get("order_value_to_date"),
                 "last_call_date": _coerce_nullable_date(row.get("last_call_date_x")),
                 "status": "pending",
-                "follow_up_date": _coerce_nullable_date(row.get("follow_up_date")),
+                "follow_up_date": None,
                 "comment": row.get("comment", None),
             }
 
