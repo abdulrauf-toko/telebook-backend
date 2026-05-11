@@ -181,30 +181,6 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes hard limit
 SERVER_IP = os.getenv('SERVER_IP')
 SIP_IP = os.getenv('SIP_IP')
 
-# Queue Configuration
-CELERY_TASK_QUEUES = {
-    'default': {
-        'exchange': 'default',
-        'routing_key': 'default',
-        'exchange_type': 'direct',
-    },
-    'dialer_queue': {
-        'exchange': 'dialer',
-        'routing_key': 'dialer.sequential',
-        'exchange_type': 'direct',
-    },
-}
-
-# Route dialer tasks to the sequential queue
-CELERY_TASK_ROUTES = {
-    'dialer.tasks.process_dialer_logic': {'queue': 'dialer_queue'},
-    'dialer.tasks.execute_dial': {'queue': 'dialer_queue'},
-    'dialer.tasks.handle_agent_state': {'queue': 'dialer_queue'},
-}
-
-# Default queue for all other tasks
-CELERY_TASK_DEFAULT_QUEUE = 'default'
-
 
 # ============================================================================
 # CACHING CONFIGURATION
@@ -223,13 +199,6 @@ CACHES = {
         'TIMEOUT': 300,  # Default cache timeout 5 minutes
     }
 }
-
-# Cache key configuration for agent states
-AGENT_STATE_CACHE_PREFIX = 'agent_state:'
-AGENT_STATE_CACHE_TIMEOUT = 600  # 10 minutes
-CALL_STATE_CACHE_PREFIX = 'call_state:'
-CALL_STATE_CACHE_TIMEOUT = 3600  # 1 hour
-
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -320,5 +289,6 @@ AWS_S3_REGION_NAME = 'ap-southeast-1'
 
 # Media files
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+RECORDINGS_ROOT = "/home/pbx/telebook-pbx/recordings"
 
 MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/'

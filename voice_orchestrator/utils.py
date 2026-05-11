@@ -7,12 +7,13 @@ import boto3
 from datetime import date
 import logging
 import csv
-import io
 from django.utils import timezone
 import datetime
 import shutil
 import subprocess
 from urllib.parse import unquote, urlparse
+
+CALL_LOGS_EXPORT_DIR = "/home/pbx"
 
 
 _xml_lock = Lock()
@@ -122,6 +123,18 @@ def fs_delete_user(extension):
         tree.write(DEFAULT_XML, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
     fs_manager.api('reloadxml')
+
+
+def delete_local_file(file_path: str) -> bool:
+    try:
+        os.remove(file_path)
+        return True
+    except FileNotFoundError:
+        logger.warning(f"File not found, skipping delete: {file_path}")
+        return False
+    except OSError as e:
+        logger.error(f"Failed to delete file {file_path}: {e}")
+        return False
 
 
 def upload_call_recording(file_path: str, recording_date: date) -> str:
@@ -251,11 +264,12 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
             'name',
             "link",
             "followup_date",
-            "comment"
+            "comment",
+            "lead_segment"
         ]
         
         # Set default output path if not provided
-        output_path = f"/home/pbx/call_logs_{start_date.strftime('%Y-%m-%d')}-{end_date.strftime('%Y-%m-%d')}.csv"
+        output_path = os.path.join(CALL_LOGS_EXPORT_DIR, f"call_logs_{start_date.strftime('%Y-%m-%d')}-{end_date.strftime('%Y-%m-%d')}.csv")
         
         # Create and write CSV file
         with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -285,9 +299,11 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     # dukaan_account_id = call_log.lead.dukaan_account_id
                     campaign = call_log.lead.campaign
                     if campaign and campaign.campaign_type == 'rupin_emi':
+                        lead_segment = None
                         segment = "rupin-emi-campaign"
                     else:
-                        segment = "everyday-campaign" 
+                        lead_segment = campaign.segment
+                        segment = "specialized-segment-campaign" 
                 else:
                     segment = None
                     follow_up_date = None
@@ -327,6 +343,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     'followup_date': follow_up_date,
                     'comment': comment,
                     'link': recording_url,
+                    'lead_segment': lead_segment
                 }
                 
                 writer.writerow(row)
@@ -377,3 +394,16 @@ def convert_wav_to_mp3(file_path: str) -> str:
 
     # os.remove(file_path)
     return output_path
+
+
+def _resolve_recording_path(recording_value: str) -> str:
+    if not recording_value:
+        return None
+
+    if recording_value.startswith(("http://", "https://")):
+        return None
+
+    if os.path.isabs(recording_value):
+        return recording_value
+
+    return os.path.join(settings.RECORDINGS_ROOT, recording_value.lstrip("/"))

@@ -4,7 +4,9 @@ import logging
 import requests
 from django.conf import settings
 from voice_orchestrator.utils import normalize_phone_number
-from collections import defaultdict
+import time
+import pandas as pd
+from io import StringIO
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +92,6 @@ def store_campaigns_from_df(df):
 
             phone_number = normalize_phone_number(str(row["number"]))
 
-            follow_up_date = row.get("follow_up_date")
-            import pandas as pd
-            if pd.isna(follow_up_date):
-                follow_up_date = None
-            else:
-                follow_up_date = None
-
-            if pd.isna(follow_up_date):
-                follow_up_date = None
-            else:
-                follow_up_date = None
-
             lead_defaults = {
                 "campaign": campaign,
                 "phone_number": phone_number,
@@ -116,7 +106,7 @@ def store_campaigns_from_df(df):
                 "overall_gmv": row.get("order_value_to_date"),
                 "last_call_date": _coerce_nullable_date(row.get("last_call_date_x")),
                 "status": "pending",
-                "follow_up_date": None,
+                "follow_up_date": _coerce_nullable_date(row.get("follow_up_date")),
                 "comment": row.get("comment", None),
             }
 
@@ -225,58 +215,64 @@ def refill_emi_campaign_data(agent_ids):
 
     return {"success": True, "total_leads_created": total_created}
 
+def fetch_and_store_telebook_campaign():
+    # return    
+    MAX_TRIES = 10
+    POLL_INTERVAL = 45  # seconds
+    POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
+    headers = {"X-API-Key": settings.API_KEY}
 
-def get_emi_call_logs(date):
-    
-    all_logs = (
-        CallLog.objects
-        .filter(initiated_at__date=date)
-        .select_related('agent', 'lead', 'lead__campaign')
-        .order_by('to_number', '-initiated_at')
-    )
+    # Step 1: Trigger the campaign generation
+    try:
+        response = requests.post(POLL_API_URL, headers=headers)
+        if not response.ok:
+            logger.error("Trigger campaign HTTP {}: {}".format(response.status_code, response.text[:500]))
+            return
+        if not response.text.strip():
+            logger.error("Trigger campaign returned empty body (HTTP {})".format(response.status_code))
+            return
+        data = response.json()
+        if not data.get("success"):
+            logger.error("Failed to trigger campaign: {}".format(data))
+            return
+        poll_id = data["poll_id"]
+        logger.info("Campaign triggered, poll_id: {}".format(poll_id))
+    except Exception as e:
+        logger.exception("Error triggering campaign: {}".format(e))
+        return
 
-    # Group by phone number, preserving -initiated_at order (most recent first)
-    logs_by_number = defaultdict(list)
-    for log in all_logs:
-        logs_by_number[log.to_number].append(log)
+    # Step 2: Poll until completed
+    for attempt in range(1, MAX_TRIES + 1):
+        logger.info("Polling attempt {}/{}".format(attempt, MAX_TRIES))
+        time.sleep(POLL_INTERVAL)
 
-    # If any log for a number has LOSE_RACE or USER_NOT_REGISTERED, keep only the most recent
-    SKIP_REASONS = {'LOSE_RACE', 'USER_NOT_REGISTERED'}
-    filtered_logs = []
-    for logs in logs_by_number.values():
-        if len(logs) > 1 and any(log.disconnect_reason in SKIP_REASONS for log in logs):
-            filtered_logs.append(logs[0])
-        else:
-            filtered_logs.extend(logs)
+        try:
+            poll_response = requests.get(
+                POLL_API_URL,
+                headers=headers,
+                params={"poll_id": poll_id}
+            )
 
-    # Batch-fetch the latest lead for phone numbers where no lead is attached
-    no_lead_phones = {log.to_number for log in filtered_logs if log.lead is None}
-    lead_by_phone = {}
-    if no_lead_phones:
-        leads_qs = (
-            Lead.objects
-            .filter(phone_number__in=no_lead_phones)
-            .select_related('campaign')
-            .order_by('phone_number', '-created_at')
-        )
-        for lead in leads_qs:
-            if lead.phone_number not in lead_by_phone:
-                lead_by_phone[lead.phone_number] = lead
+            # CSV is returned when completed
+            if poll_response.headers.get("Content-Type") == "text/csv":
+                logger.info("CSV received, processing...")
+                csv_content = poll_response.content.decode("utf-8")
+                df = pd.read_csv(StringIO(csv_content))
+                store_campaigns_from_df(df)
+                return
 
-    data = {}
-    for log in filtered_logs:
-        lead = log.lead if log.lead is not None else lead_by_phone.get(log.to_number)
+            result = poll_response.json()
+            status = result.get("status")
 
-        if lead is None or lead.campaign is None or lead.campaign.segment != 'other':
+            if status == "pending":
+                logger.info("Still pending...")
+                continue
+            elif status == "failed":
+                logger.error("Campaign generation failed on server side")
+                return
+
+        except Exception as e:
+            logger.exception("Error polling: {}".format(e))
             continue
 
-        if not lead.emi_id:
-            continue
-
-        data[str(lead.emi_id)] = {
-            'called_at': log.initiated_at.isoformat() if log.initiated_at else None,
-            'disposition': UDHAAR_DISPOSITION_MAP.get(log.status),
-        }
-
-    logger.info("get_emi_call_logs: built report for {} leads".format(len(data)))
-    return {'data': data}
+    logger.error("Max polling attempts ({}) reached without completion".format(MAX_TRIES))

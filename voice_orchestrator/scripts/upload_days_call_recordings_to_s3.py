@@ -5,9 +5,7 @@ from django.utils import timezone
 
 from dialer.models import CallLog
 from events.tasks import upload_call_recording_to_s3
-
-
-RECORDINGS_ROOT = "/home/pbx/telebook-pbx/recordings"
+from voice_orchestrator.utils import _resolve_recording_path
 
 
 def _coerce_to_date(value):
@@ -18,19 +16,6 @@ def _coerce_to_date(value):
     if isinstance(value, str):
         return datetime.strptime(value, "%Y-%m-%d").date()
     raise ValueError("start_date and end_date must be date, datetime, or YYYY-MM-DD strings")
-
-
-def _resolve_recording_path(recording_value: str) -> str:
-    if not recording_value:
-        return None
-
-    if recording_value.startswith(("http://", "https://")):
-        return None
-
-    if os.path.isabs(recording_value):
-        return recording_value
-
-    return os.path.join(RECORDINGS_ROOT, recording_value.lstrip("/"))
 
 
 def upload_days_call_recordings_to_s3(start_date, end_date):

@@ -312,6 +312,7 @@ def call_ending_routine(call_details, event, direction):
     call_details["disconnect_reason"] = event.headers.get("Hangup-Cause")
     call_details["duration_seconds"] = int(event.headers.get("variable_duration"))
     call_details["billable_seconds"] = int(event.headers.get("variable_billsec", 0))
+    call_details['auto_bridge'] = event.headers.get("variable_sip_h_X-auto_bridge", None)
     if not call_details.get("phone_number", None):
         call_details["phone_number"] = event.headers.get("Caller-Destination-Number")    
     call_details['direction'] = direction

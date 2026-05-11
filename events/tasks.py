@@ -13,10 +13,9 @@ from django.utils import timezone
 from django.conf import settings
 from dialer.models import CallLog, Lead
 from voice_orchestrator.redis import AGENT_STATE_LOCK_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, SYNC_TO_DB_LOCK_REDIS_KEY, conn
-from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, upload_call_logs, upload_call_recording
+from voice_orchestrator.utils import convert_wav_to_mp3, export_today_call_logs_to_csv, upload_call_logs, upload_call_recording, _resolve_recording_path, delete_local_file
 from .utils import add_active_call_in_cache, connect_agent_to_call, disconnect_call, fs_timestamp_to_datetime, is_agent_idle_in_cache, mark_agent_busy_in_cache, update_active_call_in_cache, map_call_status, call_ending_routine, handle_free_agent, remove_customer_from_waiting_queue, get_next_customer_waiting_in_queue
 from dialer.utils import get_next_available_agent, remove_active_call, construct_queue_object, add_to_priority_queue_mapping, get_and_clear_completed_calls
-from dialer.udhaar_utils import get_emi_call_logs, UDHAAR_BASE_URL
 from websocket.utils import push_agent_event
 
 # ============================================================================
@@ -240,6 +239,10 @@ def sync_to_db(self):
             recording_path = call_details.get('recording_path', None)
             billable_seconds = call_details.get('billable_seconds', None)
 
+            auto_bridge = call_details.get('auto_bridge', None)
+            if auto_bridge and duration_seconds < 30:
+                call_status = 'no_answer'
+
             call_log = CallLog.objects.create(
                 call_id=call_uuid,
                 agent_id=agent_id,
@@ -255,6 +258,12 @@ def sync_to_db(self):
                 call_direction=direction,
                 talk_time_seconds=billable_seconds
             )
+
+            if call_status == 'answered':
+                recording_path = _resolve_recording_path(recording_path)
+                recording_url = upload_call_recording_to_s3(call_log, recording_path)
+                if recording_url: #success upload
+                    delete_local_file(recording_path)
 
             if call_status in ['answered', 'no_answer', 'busy', 'invalid'] and lead_id:
                 if call_status == 'answered':
@@ -371,27 +380,11 @@ def upload_call_recording_to_s3(log_obj, recording_path):
         return url
     except Exception as e:
         logger.exception(f"Error uploading call recording to S3: {e}")
-        return None
-
-@app.task
-def post_emi_call_logs():
-    yesterday = (timezone.now() - timedelta(days=1)).date()
-    payload = get_emi_call_logs(yesterday)
-
-    api_url = f"{UDHAAR_BASE_URL}telecard/emi-call-logs/"
-    headers = {"X-API-Key": settings.API_KEY}
-
-    try:
-        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
-        logger.info("post_emi_call_logs: posted {} agent(s) for {}".format(len(payload.get("data", {})), yesterday))
-        return {"success": True, "date": str(yesterday)}
-    except Exception as exc:
-        logger.exception("post_emi_call_logs: failed to post call logs: {}".format(exc))
-        return {"success": False, "error": str(exc)}
-    
+        return None   
 
 @app.task
 def daily_start_routine():
     from dialer.utils import create_emi_campaigns
+    from dialer.udhaar_utils import fetch_and_store_telebook_campaign
     create_emi_campaigns()
+    fetch_and_store_telebook_campaign()

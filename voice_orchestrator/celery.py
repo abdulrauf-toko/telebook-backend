@@ -25,10 +25,6 @@ app.autodiscover_tasks()
 
 # Celery Beat schedule
 PROD_BEAT_SCHEDULE = {
-    'daily-telebook-campaign': {
-        'task': 'dialer.tasks.fetch_and_store_telebook_campaign',
-        'schedule': crontab(hour=1, minute=0),
-    },
     'dialer-cycle-every-30-seconds': {
         'task': 'dialer.tasks.initiate_dialer_cycle',
         'schedule': 30.0,

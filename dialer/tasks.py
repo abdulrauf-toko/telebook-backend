@@ -1,18 +1,14 @@
 import logging
 from django.utils import timezone
 from voice_orchestrator.celery import app
-import time
 from .utils import construct_queue_object, flush_redis_data, make_campaigns_inactive, add_to_priority_queue_mapping, \
         validate_and_cleanup_agent_states, check_and_refill_queue, acquire_dialer_lock, process_priority_queue, \
         process_secondary_queue, release_dialer_lock, reset_selected_campaign
 from .models import Lead, Campaign, Agent, CallLog
 from django.db import transaction
 from events.utils import get_all_idle_agents_in_cache
-from .udhaar_utils import store_campaigns_from_df
 from voice_orchestrator.utils import normalize_phone_number
 import requests
-import pandas as pd
-from io import StringIO
 from django.conf import settings
 from dialer.udhaar_utils import UDHAAR_BASE_URL
 
@@ -90,70 +86,6 @@ def initiate_dialer_cycle(self):
     
     finally:
         release_dialer_lock()
-
-
-@app.task(bind=True)
-def fetch_and_store_telebook_campaign(self):
-    # return    
-    MAX_TRIES = 10
-    POLL_INTERVAL = 45  # seconds
-    POLL_API_URL = "https://udhaar-api.oscar.pk/marketplace/telebook/campaigns/"
-    headers = {"X-API-Key": settings.API_KEY}
-
-    # Step 1: Trigger the campaign generation
-    try:
-        response = requests.post(POLL_API_URL, headers=headers)
-        if not response.ok:
-            logger.error("Trigger campaign HTTP {}: {}".format(response.status_code, response.text[:500]))
-            return
-        if not response.text.strip():
-            logger.error("Trigger campaign returned empty body (HTTP {})".format(response.status_code))
-            return
-        data = response.json()
-        if not data.get("success"):
-            logger.error("Failed to trigger campaign: {}".format(data))
-            return
-        poll_id = data["poll_id"]
-        logger.info("Campaign triggered, poll_id: {}".format(poll_id))
-    except Exception as e:
-        logger.exception("Error triggering campaign: {}".format(e))
-        return
-
-    # Step 2: Poll until completed
-    for attempt in range(1, MAX_TRIES + 1):
-        logger.info("Polling attempt {}/{}".format(attempt, MAX_TRIES))
-        time.sleep(POLL_INTERVAL)
-
-        try:
-            poll_response = requests.get(
-                POLL_API_URL,
-                headers=headers,
-                params={"poll_id": poll_id}
-            )
-
-            # CSV is returned when completed
-            if poll_response.headers.get("Content-Type") == "text/csv":
-                logger.info("CSV received, processing...")
-                csv_content = poll_response.content.decode("utf-8")
-                df = pd.read_csv(StringIO(csv_content))
-                store_campaigns_from_df(df)
-                return
-
-            result = poll_response.json()
-            status = result.get("status")
-
-            if status == "pending":
-                logger.info("Still pending...")
-                continue
-            elif status == "failed":
-                logger.error("Campaign generation failed on server side")
-                return
-
-        except Exception as e:
-            logger.exception("Error polling: {}".format(e))
-            continue
-
-    logger.error("Max polling attempts ({}) reached without completion".format(MAX_TRIES))
 
 
 @app.task(bind=True)
