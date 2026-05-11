@@ -362,6 +362,7 @@ def agent_dashboard(request):
     call_logs = []
     unique_phone_count = 0
     today_leads_count = 0
+    active_campaigns = []
     error_message = None
     stats = {}
     selected_date = date.today()
@@ -417,6 +418,18 @@ def agent_dashboard(request):
                 campaign__agent=agent
             )
             today_leads_count = leads_on_date.count()
+
+            # Active campaigns for this agent with lead counts
+            from django.db.models import Count, Q
+            active_campaigns = (
+                Campaign.objects.filter(agent=agent, active=True)
+                .annotate(
+                    total_leads=Count('leads'),
+                    pending_leads=Count('leads', filter=Q(leads__status='pending')),
+                )
+                .values('campaign_id', 'segment', 'total_leads', 'pending_leads')
+                .order_by('segment')
+            )
             
             
             # Calculate statistics
@@ -442,6 +455,7 @@ def agent_dashboard(request):
         'call_logs': call_logs,
         'unique_phone_count': unique_phone_count,
         'today_leads_count': today_leads_count,
+        'active_campaigns': active_campaigns,
         'error_message': error_message,
         'stats': stats,
         'selected_date': selected_date.isoformat(),

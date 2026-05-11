@@ -383,6 +383,93 @@
             font-size: 16px;
         }
 
+        /* Campaigns Section */
+        .campaigns-section {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .campaigns-section h2 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .campaigns-section h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .campaigns-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .campaigns-table thead {
+            background: #f8f9fa;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .campaigns-table th {
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .campaigns-table td {
+            padding: 14px 15px;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+
+        .campaigns-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .campaigns-table tbody tr:hover {
+            background: #f9f9f9;
+        }
+
+        .pending-badge {
+            display: inline-block;
+            background: #fff3cd;
+            color: #856404;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .pending-badge.zero {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .segment-tag {
+            display: inline-block;
+            background: #e8eafd;
+            color: #667eea;
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .dashboard-header {
@@ -511,6 +598,35 @@
                     <div class="stat-value">{{ stats.no_answer }}</div>
                 </div>
             </div>
+
+            <!-- Active Campaigns Section -->
+            {% if active_campaigns %}
+            <div class="campaigns-section">
+                <h2>Active Campaigns</h2>
+                <table class="campaigns-table">
+                    <thead>
+                        <tr>
+                            <th>Segment</th>
+                            <th>Total Leads</th>
+                            <th>Pending Leads</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for campaign in active_campaigns %}
+                        <tr>
+                            <td><span class="segment-tag">{{ campaign.segment|default:"—" }}</span></td>
+                            <td>{{ campaign.total_leads }}</td>
+                            <td>
+                                <span class="pending-badge {% if campaign.pending_leads == 0 %}zero{% endif %}">
+                                    {{ campaign.pending_leads }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
 
             <!-- Call Logs Section -->
             <div class="call-logs-section">
