@@ -20,6 +20,7 @@ FS_TO_DJANGO_STATUS = {
     # No Answer
     'NO_USER_RESPONSE': 'no_answer',
     'PROGRESS_TIMEOUT': 'no_answer',
+    'NO_ANSWER': 'no_answer',
     
     # Failed / System Issues
     'RECOVERY_ON_TIMER': 'failed',
