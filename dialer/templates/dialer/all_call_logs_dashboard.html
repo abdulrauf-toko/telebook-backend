@@ -300,7 +300,10 @@
     <div class="container">
         <div class="dashboard-header">
             <h1>All Call Logs Dashboard</h1>
-            <div class="agent-info">Pakistan Time</div>
+            <div class="agent-info">
+                <div>Pakistan Time</div>
+                <a class="btn" href="{{ request.get_full_path }}" style="margin-top: 10px;">Refresh</a>
+            </div>
         </div>
 
         {% if error_message %}

@@ -10,17 +10,58 @@ import logging
 from datetime import date, datetime, timedelta
 import pytz
 from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache, log_agent_authentication_action
+from events.models import AgentLogs
 from django.contrib.auth.decorators import login_required
 
 from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
-from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
+from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from voice_orchestrator.utils import generate_presigned_s3_url
 from .models import Agent, Campaign, Lead, CallLog
 from dialer.utils import build_originate_command, get_disposition_mapping, active_campaigns
 from dialer.tasks import formdata_scheduled_task
 
 logger = logging.getLogger(__name__)
+
+
+def _format_duration(seconds):
+    seconds = max(0, int(seconds or 0))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _safe_load_json(raw_data):
+    if not raw_data:
+        return {}
+
+    try:
+        return json.loads(raw_data)
+    except Exception:
+        return {}
+
+
+def _logged_out_seconds_for_day(auth_logs, day_start, now_pk, initially_logged_in):
+    logged_out_since = None if initially_logged_in else day_start
+    total_seconds = 0
+
+    for entry in auth_logs:
+        created_at = entry.created_at.astimezone(day_start.tzinfo)
+
+        if entry.action == 'login':
+            if logged_out_since is not None:
+                total_seconds += (created_at - logged_out_since).total_seconds()
+                logged_out_since = None
+        elif entry.action == 'logout' and logged_out_since is None:
+            logged_out_since = created_at
+
+    if logged_out_since is not None:
+        total_seconds += (now_pk - logged_out_since).total_seconds()
+
+    return int(max(0, total_seconds))
 
 
 @csrf_exempt  # Disable CSRF for simplicity (use proper auth in production)
@@ -550,6 +591,203 @@ def all_call_logs_dashboard(request):
     }
 
     return render(request, 'dialer/all_call_logs_dashboard.html', context)
+
+
+def manager_dashboard(request):
+    """
+    Manager dashboard for monitoring live agent availability and daily productivity.
+    """
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+
+    selected_date_value = request.GET.get('date') or now_pk.date().isoformat()
+    error_message = None
+
+    try:
+        selected_date = datetime.strptime(selected_date_value, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        selected_date = now_pk.date()
+        selected_date_value = selected_date.isoformat()
+        error_message = 'Date must be valid. Showing today instead.'
+
+    day_start_pk = karachi_tz.localize(datetime.combine(selected_date, datetime.min.time()))
+    if selected_date == now_pk.date():
+        day_end_pk = now_pk
+    else:
+        day_end_pk = karachi_tz.localize(datetime.combine(selected_date, datetime.max.time().replace(microsecond=0)))
+
+    day_start_utc = day_start_pk.astimezone(pytz.utc)
+    day_end_utc = day_end_pk.astimezone(pytz.utc)
+
+    try:
+        raw_agent_states = conn.hgetall(AGENT_STATE_REDIS_KEY)
+    except Exception as exc:
+        logger.exception(f"Error reading live agent states: {exc}")
+        raw_agent_states = {}
+        error_message = 'Live Redis status is unavailable. Showing database stats only.'
+    live_agent_states = {
+        int(agent_id): _safe_load_json(raw_data)
+        for agent_id, raw_data in raw_agent_states.items()
+        if str(agent_id).isdigit()
+    }
+
+    from django.db.models import Count, Q
+    call_stats_by_agent = {
+        row['agent_id']: row
+        for row in (
+            CallLog.objects
+            .filter(initiated_at__gte=day_start_utc, initiated_at__lte=day_end_utc)
+            .values('agent_id')
+            .annotate(
+                total_calls=Count('id'),
+                answered_calls=Count('id', filter=Q(status='answered')),
+            )
+        )
+    }
+
+    logs_by_agent = {}
+    logs = (
+        AgentLogs.objects
+        .filter(created_at__gte=day_start_utc, created_at__lte=day_end_utc)
+        .select_related('agent')
+        .order_by('agent_id', 'created_at')
+    )
+    for log in logs:
+        logs_by_agent.setdefault(log.agent_id, []).append(log)
+
+    previous_auth_logs = {
+        log.agent_id: log
+        for log in (
+            AgentLogs.objects
+            .filter(created_at__lt=day_start_utc, action__in=['login', 'logout'])
+            .order_by('agent_id', '-created_at')
+            .distinct('agent_id')
+        )
+    }
+
+    latest_login_logs = {
+        log.agent_id: log
+        for log in (
+            AgentLogs.objects
+            .filter(created_at__lte=day_end_utc, action='login')
+            .order_by('agent_id', '-created_at')
+            .distinct('agent_id')
+        )
+    }
+
+    latest_logout_logs = {
+        log.agent_id: log
+        for log in (
+            AgentLogs.objects
+            .filter(created_at__lte=day_end_utc, action='logout')
+            .order_by('agent_id', '-created_at')
+            .distinct('agent_id')
+        )
+    }
+
+    agents = (
+        Agent.objects
+        .filter(is_active=True)
+        .select_related('user', 'selected_campaign')
+        .prefetch_related('teams')
+        .order_by('user__first_name', 'user__username', 'extension')
+    )
+
+    agent_rows = []
+    total_calls = 0
+    total_answered = 0
+    active_count = 0
+    on_call_count = 0
+    logged_out_count = 0
+
+    for agent in agents:
+        live_state = live_agent_states.get(agent.id)
+        is_live = live_state is not None
+        state = live_state.get('state') if live_state else None
+        is_on_call = is_live and bool(live_state.get('current_call_id') or state == 'busy')
+
+        if is_live:
+            active_count += 1
+        else:
+            logged_out_count += 1
+        if is_on_call:
+            on_call_count += 1
+
+        agent_logs = logs_by_agent.get(agent.id, [])
+        auth_logs = [log for log in agent_logs if log.action in ('login', 'logout')]
+        previous_auth = previous_auth_logs.get(agent.id)
+        initially_logged_in = previous_auth.action == 'login' if previous_auth else is_live and not auth_logs
+        logged_out_seconds = _logged_out_seconds_for_day(
+            auth_logs,
+            day_start_pk,
+            day_end_pk,
+            initially_logged_in,
+        )
+
+        stats = call_stats_by_agent.get(agent.id, {})
+        agent_total_calls = stats.get('total_calls', 0)
+        agent_answered_calls = stats.get('answered_calls', 0)
+        total_calls += agent_total_calls
+        total_answered += agent_answered_calls
+        connect_ratio = round((agent_answered_calls / agent_total_calls) * 100, 1) if agent_total_calls else 0
+
+        first_log = agent_logs[0] if agent_logs else None
+        latest_login = latest_login_logs.get(agent.id)
+        latest_logout = latest_logout_logs.get(agent.id)
+
+        if is_live:
+            status_label = 'On Call' if is_on_call else 'Active'
+            status_detail = 'Active since'
+            status_time = None
+            if latest_login and (not latest_logout or latest_login.created_at >= latest_logout.created_at):
+                status_time = latest_login.created_at.astimezone(karachi_tz)
+        else:
+            status_label = 'Logged Out'
+            status_detail = 'Last active at'
+            status_time = latest_logout.created_at.astimezone(karachi_tz) if latest_logout else None
+
+        team_names = ', '.join(team.get_name_display() for team in agent.teams.all())
+        agent_name = agent.user.get_full_name() or agent.user.username if agent.user else f'Agent {agent.id}'
+
+        agent_rows.append({
+            'agent': agent,
+            'agent_name': agent_name,
+            'extension': agent.extension,
+            'teams': team_names or 'No team',
+            'status_label': status_label,
+            'status_class': 'on-call' if is_on_call else 'active' if is_live else 'logged-out',
+            'status_detail': status_detail,
+            'status_time': status_time,
+            'state_label': (state or 'offline').replace('_', ' ').title(),
+            'current_call_id': live_state.get('current_call_id') if live_state else None,
+            'total_calls': agent_total_calls,
+            'answered_calls': agent_answered_calls,
+            'connect_ratio': connect_ratio,
+            'logged_out_duration': _format_duration(logged_out_seconds),
+            'logged_out_seconds': logged_out_seconds,
+            'first_log': first_log,
+            'first_log_time': first_log.created_at.astimezone(karachi_tz) if first_log else None,
+            'selected_campaign': agent.selected_campaign,
+        })
+
+    agent_rows.sort(key=lambda row: (row['status_class'] == 'logged-out', -row['total_calls'], row['agent_name']))
+
+    context = {
+        'agent_rows': agent_rows,
+        'selected_date': selected_date_value,
+        'last_refreshed': now_pk,
+        'error_message': error_message,
+        'summary': {
+            'total_agents': len(agent_rows),
+            'active_agents': active_count,
+            'on_call_agents': on_call_count,
+            'logged_out_agents': logged_out_count,
+            'total_calls': total_calls,
+            'connect_ratio': round((total_answered / total_calls) * 100, 1) if total_calls else 0,
+        },
+    }
+
+    return render(request, 'dialer/manager_dashboard.html', context)
     
 
 @csrf_exempt
@@ -686,5 +924,3 @@ def formdata_submission(request):
     return JsonResponse({
         'success': True
     })
-
-

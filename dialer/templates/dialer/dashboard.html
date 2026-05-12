@@ -551,6 +551,7 @@
                 <div class="agent-info">
                     <div class="agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</div>
                     <div class="agent-extension">Extension: {{ agent.extension }}</div>
+                    <a href="{{ request.get_full_path }}" class="change-user-btn" style="display: inline-block; margin-top: 10px; text-decoration: none;">Refresh Stats</a>
                     <form method="GET" action="" style="margin-top: 10px;">
                         <button type="submit" class="change-user-btn">Switch User</button>
                     </form>

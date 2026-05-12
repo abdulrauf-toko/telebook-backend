@@ -12,6 +12,7 @@ urlpatterns = [
     path('agent/logout/', views.logout_agent_api, name='agent-logout'),
     path('campaigns/active/', views.active_campaigns, name='active-campaigns'),
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
+    path('manager-dashboard/', views.manager_dashboard, name='manager-dashboard'),
     path('all-call-logs/', views.all_call_logs_dashboard, name='all-call-logs-dashboard'),
     path('form-submission/', views.formdata_submission, name='form-submission'),
     
