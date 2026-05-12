@@ -7,6 +7,7 @@ from voice_orchestrator.utils import normalize_phone_number
 import time
 import pandas as pd
 from io import StringIO
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,15 @@ def store_campaigns_from_df(df):
 
             phone_number = normalize_phone_number(str(row["number"]))
 
+            follow_up_date = row.get("follow_up_date")
+            if pd.notnull(follow_up_date):
+                follow_up_date = datetime.strptime(
+                    follow_up_date,
+                    "%Y-%m-%d %H:%M:%S%z"
+                ).date()
+            else:
+                follow_up_date = None
+
             lead_defaults = {
                 "campaign": campaign,
                 "phone_number": phone_number,
@@ -106,7 +116,7 @@ def store_campaigns_from_df(df):
                 "overall_gmv": row.get("order_value_to_date"),
                 "last_call_date": _coerce_nullable_date(row.get("last_call_date_x")),
                 "status": "pending",
-                "follow_up_date": _coerce_nullable_date(row.get("follow_up_date")),
+                "follow_up_date": str(follow_up_date) if follow_up_date else None,
                 "comment": row.get("comment", None),
             }
 

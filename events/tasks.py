@@ -240,7 +240,7 @@ def sync_to_db(self):
             billable_seconds = call_details.get('billable_seconds', None)
 
             auto_bridge = call_details.get('auto_bridge', None)
-            if auto_bridge and duration_seconds < 30:
+            if auto_bridge and call_status == "answered" and duration_seconds < 30:
                 call_status = 'no_answer'
 
             call_log = CallLog.objects.create(
