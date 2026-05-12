@@ -265,7 +265,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
             "link",
             "followup_date",
             "comment",
-            "lead_segment"
+            "customer_segment"
         ]
         
         # Set default output path if not provided
@@ -299,10 +299,10 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     # dukaan_account_id = call_log.lead.dukaan_account_id
                     campaign = call_log.lead.campaign
                     if campaign and campaign.campaign_type == 'rupin_emi':
-                        lead_segment = None
+                        customer_segment = None
                         segment = "rupin-emi-campaign"
                     else:
-                        lead_segment = campaign.segment
+                        customer_segment = campaign.segment
                         segment = "specialized-segment-campaign" 
                 else:
                     segment = None
@@ -343,7 +343,7 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     'followup_date': follow_up_date,
                     'comment': comment,
                     'link': recording_url,
-                    'lead_segment': lead_segment
+                    'customer_segment': customer_segment
                 }
                 
                 writer.writerow(row)
