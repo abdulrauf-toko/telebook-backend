@@ -305,7 +305,10 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                         customer_segment = campaign.segment
                         segment = "specialized-segment-campaign" 
                 else:
-                    segment = None
+                    if call_log.agent:
+                        segment = "rupin-emi-campaign"
+                    else:
+                        segment = None
                     follow_up_date = None
                     comment = None
                     to_number = call_log.to_number
