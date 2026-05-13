@@ -97,7 +97,7 @@ def store_campaigns_from_df(df):
             if pd.notnull(follow_up_date):
                 follow_up_date = datetime.strptime(
                     follow_up_date,
-                    "%Y-%m-%d %H:%M:%S%z"
+                    "%Y-%m-%d"
                 ).date()
             else:
                 follow_up_date = None
@@ -210,6 +210,7 @@ def refill_emi_campaign_data(agent_ids):
         for entry in leads_data:
             emi_id = entry.get("id")
             phone_number = normalize_phone_number(str(entry.get("phone_number", "")))
+            stage = entry.get("stage")
 
             if not Lead.objects.filter(emi_id=emi_id, campaign=campaign).exists():
                 leads_to_create.append(Lead(
@@ -217,6 +218,7 @@ def refill_emi_campaign_data(agent_ids):
                     emi_id=emi_id,
                     phone_number=phone_number,
                     customer_name=phone_number,
+                    emi_stage=stage,
                     status="pending",
                 ))
 

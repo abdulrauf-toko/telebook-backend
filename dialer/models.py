@@ -362,6 +362,12 @@ class Lead(models.Model):
         help_text="Unique EMI lead identifier (from Udhaar)"
     )
 
+    emi_stage = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True
+    )
+
     phone_number = models.CharField(
         max_length=20,
         db_index=True,
