@@ -368,11 +368,14 @@ def upload_call_recording_to_s3(log_obj, recording_path):
             log_obj = CallLog.objects.get(id=log_obj)
 
         mp3_path = convert_wav_to_mp3(recording_path)
-        recording_date = (
-            log_obj.initiated_at.date()
-            if log_obj.initiated_at
-            else timezone.now().date()
-        )
+        try:
+            recording_date = (
+                log_obj.initiated_at.date()
+                if log_obj.initiated_at
+                else timezone.now().date()
+            )
+        except Exception as e:
+            recording_date = timezone.now().date()
         url = upload_call_recording(mp3_path, recording_date)
         log_obj.recording_url = url
         log_obj.save()
