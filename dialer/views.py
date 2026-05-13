@@ -22,6 +22,7 @@ from dialer.utils import build_originate_command, get_disposition_mapping, activ
 from dialer.tasks import formdata_scheduled_task
 
 logger = logging.getLogger(__name__)
+PKT = pytz.timezone("Asia/Karachi")
 
 
 def _format_duration(seconds):
@@ -44,24 +45,51 @@ def _safe_load_json(raw_data):
         return {}
 
 
-def _logged_out_seconds_for_day(auth_logs, day_start, now_pk, initially_logged_in):
-    logged_out_since = None if initially_logged_in else day_start
-    total_seconds = 0
+def _get_agent_summary_data(agent_id, target_date):
+    logs = (
+        AgentLogs.objects.filter(
+            agent_id=agent_id,
+            created_at__date=target_date,
+            action__in=['login', 'logout']
+        )
+        .order_by('created_at')
+    )
 
-    for entry in auth_logs:
-        created_at = entry.created_at.astimezone(day_start.tzinfo)
+    if not logs.exists():
+        return None
 
-        if entry.action == 'login':
-            if logged_out_since is not None:
-                total_seconds += (created_at - logged_out_since).total_seconds()
-                logged_out_since = None
-        elif entry.action == 'logout' and logged_out_since is None:
-            logged_out_since = created_at
+    login_times = []
+    logout_times = []
 
-    if logged_out_since is not None:
-        total_seconds += (now_pk - logged_out_since).total_seconds()
+    total_logged_out = timedelta()
+    current_logout_time = None
 
-    return int(max(0, total_seconds))
+    for log in logs:
+        pkt_time = log.created_at.astimezone(PKT)
+
+        if log.action == "login":
+            login_times.append(pkt_time)
+
+            if current_logout_time:
+                total_logged_out += pkt_time - current_logout_time
+                current_logout_time = None
+
+        elif log.action == "logout":
+            logout_times.append(pkt_time)
+            current_logout_time = pkt_time
+
+    if not login_times:
+        return None
+
+    first_login = login_times[0]
+    last_logout = logout_times[-1] if logout_times else login_times[-1]
+
+    return {
+        "agent_id": agent_id,
+        "first_login": first_login,
+        "last_logout": last_logout,
+        "total_logged_out": total_logged_out
+    }
 
 
 @csrf_exempt  # Disable CSRF for simplicity (use proper auth in production)
@@ -503,40 +531,9 @@ def agent_dashboard(request):
                 'total_talk_time': sum(log.talk_time_seconds for log in call_logs),
             }
 
-            auth_logs = list(
-                AgentLogs.objects
-                .filter(
-                    agent=agent,
-                    created_at__gte=day_start_utc,
-                    created_at__lte=day_end_utc,
-                    action__in=['login', 'logout'],
-                )
-                .order_by('created_at')
-            )
-            previous_auth_log = (
-                AgentLogs.objects
-                .filter(agent=agent, created_at__lt=day_start_utc, action__in=['login', 'logout'])
-                .order_by('-created_at')
-                .first()
-            )
-            try:
-                raw_agent_state = conn.hget(AGENT_STATE_REDIS_KEY, str(agent.id))
-            except Exception as exc:
-                logger.exception(f"Error reading live state for agent {agent.id}: {exc}")
-                raw_agent_state = None
-            is_currently_logged_in = bool(raw_agent_state)
-            initially_logged_in = (
-                previous_auth_log.action == 'login'
-                if previous_auth_log
-                else selected_date == now_pk.date() and is_currently_logged_in and not auth_logs
-            )
-            logged_out_seconds = _logged_out_seconds_for_day(
-                auth_logs,
-                day_start_pk,
-                day_end_pk,
-                initially_logged_in,
-            )
-            logged_out_minutes = round(logged_out_seconds / 60, 1)
+            agent_summary = _get_agent_summary_data(agent.id, selected_date)
+            if agent_summary:
+                logged_out_minutes = round(agent_summary["total_logged_out"].total_seconds() / 60, 1)
             
         except User.DoesNotExist:
             error_message = f"User '{username}' not found."
@@ -711,16 +708,6 @@ def manager_dashboard(request):
     for log in logs:
         logs_by_agent.setdefault(log.agent_id, []).append(log)
 
-    previous_auth_logs = {
-        log.agent_id: log
-        for log in (
-            AgentLogs.objects
-            .filter(created_at__lt=day_start_utc, action__in=['login', 'logout'])
-            .order_by('agent_id', '-created_at')
-            .distinct('agent_id')
-        )
-    }
-
     latest_login_logs = {
         log.agent_id: log
         for log in (
@@ -770,15 +757,10 @@ def manager_dashboard(request):
             on_call_count += 1
 
         agent_logs = logs_by_agent.get(agent.id, [])
-        auth_logs = [log for log in agent_logs if log.action in ('login', 'logout')]
-        previous_auth = previous_auth_logs.get(agent.id)
-        initially_logged_in = previous_auth.action == 'login' if previous_auth else is_live and not auth_logs
-        logged_out_seconds = _logged_out_seconds_for_day(
-            auth_logs,
-            day_start_pk,
-            day_end_pk,
-            initially_logged_in,
-        )
+        agent_summary = _get_agent_summary_data(agent.id, selected_date)
+        logged_out_seconds = 0
+        if agent_summary:
+            logged_out_seconds = int(agent_summary["total_logged_out"].total_seconds())
 
         stats = call_stats_by_agent.get(agent.id, {})
         agent_total_calls = stats.get('total_calls', 0)
