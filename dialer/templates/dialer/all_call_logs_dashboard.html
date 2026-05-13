@@ -374,7 +374,7 @@
                         <tbody>
                             {% for log in call_logs %}
                                 <tr>
-                                    <td>{{ log.initiated_at_karachi|date:"Y-m-d H:i:s" }}</td>
+                                    <td>{{ log.initiated_at_pkt }}</td>
                                     <td class="phone-number">{{ log.call_uuid }}</td>
                                     <td>{{ log.lead.customer_name|default:"N/A" }}</td>
                                     <td class="phone-number">{{ log.lead.phone_number|default:log.to_number }}</td>

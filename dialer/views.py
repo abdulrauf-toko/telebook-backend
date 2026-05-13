@@ -444,7 +444,7 @@ def agent_dashboard(request):
         try:
             selected_date = date.fromisoformat(date_filter)
         except (ValueError, TypeError):
-            selected_date = date.today()
+            selected_date = now_pk.date()
     
     if username:
         try:
@@ -472,16 +472,22 @@ def agent_dashboard(request):
             for log in call_logs:
                 if log.initiated_at:
                     log.initiated_at_karachi = log.initiated_at.astimezone(karachi_tz)
+                    log.initiated_at_pkt = log.initiated_at_karachi.strftime('%H:%M:%S')
                 else:
                     log.initiated_at_karachi = None
+                    log.initiated_at_pkt = ''
                 if log.answered_at:
                     log.answered_at_karachi = log.answered_at.astimezone(karachi_tz)
+                    log.answered_at_pkt = log.answered_at_karachi.strftime('%H:%M:%S')
                 else:
                     log.answered_at_karachi = None
+                    log.answered_at_pkt = ''
                 if log.ended_at:
                     log.ended_at_karachi = log.ended_at.astimezone(karachi_tz)
+                    log.ended_at_pkt = log.ended_at_karachi.strftime('%H:%M:%S')
                 else:
                     log.ended_at_karachi = None
+                    log.ended_at_pkt = ''
                 log.call_uuid = log.call_id
                 log.has_call_recording = bool(
                     log.status == 'answered'
@@ -606,8 +612,10 @@ def all_call_logs_dashboard(request):
             for log in call_logs:
                 if log.initiated_at:
                     log.initiated_at_karachi = log.initiated_at.astimezone(karachi_tz)
+                    log.initiated_at_pkt = log.initiated_at_karachi.strftime('%Y-%m-%d %H:%M:%S')
                 else:
                     log.initiated_at_karachi = None
+                    log.initiated_at_pkt = ''
                 log.call_uuid = log.call_id
                 log.has_call_recording = bool(
                     log.status == 'answered'
