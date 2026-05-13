@@ -14,6 +14,7 @@ urlpatterns = [
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
     path('manager-dashboard/', views.manager_dashboard, name='manager-dashboard'),
     path('all-call-logs/', views.all_call_logs_dashboard, name='all-call-logs-dashboard'),
+    path('manual-call-log/', views.manual_call_log, name='manual-call-log'),
     path('form-submission/', views.formdata_submission, name='form-submission'),
     
     # Call management endpoints

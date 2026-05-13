@@ -419,6 +419,79 @@ def get_call_recording(request, uuid):
         }, status=500)
 
 
+@require_http_methods(["GET", "POST"])
+def manual_call_log(request):
+    """
+    Password-protected page where agents can manually add an answered outbound call log.
+    """
+    session_key = 'manual_call_log_agent_id'
+    agent = None
+    error_message = None
+    success_message = None
+
+    agent_id = request.session.get(session_key)
+    if agent_id:
+        agent = Agent.objects.filter(id=agent_id, is_active=True).select_related('user').first()
+        if agent is None:
+            request.session.pop(session_key, None)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        if action == 'logout':
+            request.session.pop(session_key, None)
+            agent = None
+            success_message = 'Signed out from manual logging.'
+
+        elif agent is None:
+            username = request.POST.get('username', '').strip()
+            password = request.POST.get('password', '')
+            user = authenticate(request, username=username, password=password)
+
+            if user is None:
+                error_message = 'Invalid username or password.'
+            else:
+                agent = Agent.objects.filter(user=user, is_active=True).select_related('user').first()
+                if agent is None:
+                    error_message = 'No active agent is attached to this user.'
+                else:
+                    request.session[session_key] = agent.id
+
+        else:
+            phone_number = request.POST.get('phone_number', '').strip()
+            cleaned_phone_number = ''.join(char for char in phone_number if char.isdigit() or char == '+')
+
+            if not cleaned_phone_number:
+                error_message = 'Phone number is required.'
+            elif len(cleaned_phone_number) < 7 or len(cleaned_phone_number) > 20:
+                error_message = 'Phone number must be between 7 and 20 characters.'
+            else:
+                now = timezone.now()
+                call_log = CallLog.objects.create(
+                    agent=agent,
+                    lead=None,
+                    campaign=None,
+                    to_number=cleaned_phone_number,
+                    status='answered',
+                    disconnect_reason='MANUAL_LOG',
+                    initiated_at=now,
+                    answered_at=now,
+                    ended_at=now,
+                    duration_seconds=0,
+                    talk_time_seconds=0,
+                    call_direction='outbound',
+                )
+                success_message = f'Manual call log saved for {cleaned_phone_number}.'
+                logger.info(f"Manual call log {call_log.call_id} created for agent {agent.id}")
+
+    context = {
+        'agent': agent,
+        'error_message': error_message,
+        'success_message': success_message,
+    }
+    return render(request, 'dialer/manual_call_log.html', context)
+
+
 def agent_dashboard(request):
     """
     Dashboard view for agents to see their call logs and leads.
