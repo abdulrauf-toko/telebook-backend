@@ -406,7 +406,10 @@ def agent_dashboard(request):
     active_campaigns = []
     error_message = None
     stats = {}
-    selected_date = date.today()
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+    selected_date = now_pk.date()
+    logged_out_minutes = 0
     
     # Parse date_filter if provided
     if date_filter:
@@ -420,20 +423,37 @@ def agent_dashboard(request):
             from django.contrib.auth.models import User
             user = User.objects.get(username=username)
             agent = Agent.objects.get(user=user)
+
+            day_start_pk = karachi_tz.localize(datetime.combine(selected_date, datetime.min.time()))
+            if selected_date == now_pk.date():
+                day_end_pk = now_pk
+            else:
+                day_end_pk = karachi_tz.localize(datetime.combine(selected_date, datetime.max.time().replace(microsecond=0)))
+
+            day_start_utc = day_start_pk.astimezone(pytz.utc)
+            day_end_utc = day_end_pk.astimezone(pytz.utc)
             
-            # Get all call logs for selected date for this agent
+            # Get all call logs for the selected Pakistan-time day for this agent.
             call_logs = CallLog.objects.filter(
                 agent=agent,
-                initiated_at__date=selected_date
+                initiated_at__gte=day_start_utc,
+                initiated_at__lte=day_end_utc,
             ).select_related('lead', 'campaign').order_by('-initiated_at')
             
             # Convert call logs to Karachi timezone
-            karachi_tz = pytz.timezone('Asia/Karachi')
             for log in call_logs:
                 if log.initiated_at:
                     log.initiated_at_karachi = log.initiated_at.astimezone(karachi_tz)
                 else:
                     log.initiated_at_karachi = None
+                if log.answered_at:
+                    log.answered_at_karachi = log.answered_at.astimezone(karachi_tz)
+                else:
+                    log.answered_at_karachi = None
+                if log.ended_at:
+                    log.ended_at_karachi = log.ended_at.astimezone(karachi_tz)
+                else:
+                    log.ended_at_karachi = None
                 log.call_uuid = log.call_id
                 log.has_call_recording = bool(
                     log.status == 'answered'
@@ -482,6 +502,41 @@ def agent_dashboard(request):
                 'busy': call_logs.filter(status='busy').count(),
                 'total_talk_time': sum(log.talk_time_seconds for log in call_logs),
             }
+
+            auth_logs = list(
+                AgentLogs.objects
+                .filter(
+                    agent=agent,
+                    created_at__gte=day_start_utc,
+                    created_at__lte=day_end_utc,
+                    action__in=['login', 'logout'],
+                )
+                .order_by('created_at')
+            )
+            previous_auth_log = (
+                AgentLogs.objects
+                .filter(agent=agent, created_at__lt=day_start_utc, action__in=['login', 'logout'])
+                .order_by('-created_at')
+                .first()
+            )
+            try:
+                raw_agent_state = conn.hget(AGENT_STATE_REDIS_KEY, str(agent.id))
+            except Exception as exc:
+                logger.exception(f"Error reading live state for agent {agent.id}: {exc}")
+                raw_agent_state = None
+            is_currently_logged_in = bool(raw_agent_state)
+            initially_logged_in = (
+                previous_auth_log.action == 'login'
+                if previous_auth_log
+                else selected_date == now_pk.date() and is_currently_logged_in and not auth_logs
+            )
+            logged_out_seconds = _logged_out_seconds_for_day(
+                auth_logs,
+                day_start_pk,
+                day_end_pk,
+                initially_logged_in,
+            )
+            logged_out_minutes = round(logged_out_seconds / 60, 1)
             
         except User.DoesNotExist:
             error_message = f"User '{username}' not found."
@@ -500,6 +555,7 @@ def agent_dashboard(request):
         'error_message': error_message,
         'stats': stats,
         'selected_date': selected_date.isoformat(),
+        'logged_out_minutes': logged_out_minutes,
     }
     
     return render(request, 'dialer/dashboard.html', context)

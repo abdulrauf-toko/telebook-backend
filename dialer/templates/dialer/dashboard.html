@@ -598,6 +598,10 @@
                     <div class="stat-label">⏱ No Answer</div>
                     <div class="stat-value">{{ stats.no_answer }}</div>
                 </div>
+                <div class="stat-card failed">
+                    <div class="stat-label">Logged Out Minutes</div>
+                    <div class="stat-value">{{ logged_out_minutes }}</div>
+                </div>
             </div>
 
             <!-- Active Campaigns Section -->
@@ -637,7 +641,7 @@
                     <table class="call-logs-table">
                         <thead>
                             <tr>
-                                <th>Time</th>
+                                <th>Time (PKT)</th>
                                 <th>UUID</th>
                                 <th>Lead Name</th>
                                 <th>Phone Number</th>
