@@ -331,7 +331,7 @@ def export_call_log_recordings_task(self, export_id):
         exported_count = 0
 
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
-            for log in call_logs.iterator():
+            for log in call_logs.iterator(chunk_size=200):
                 agent_name = "No_agent"
                 if log.agent and log.agent.user:
                     agent_name = log.agent.user.get_full_name() or log.agent.user.username
