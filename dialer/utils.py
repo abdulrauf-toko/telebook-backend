@@ -274,12 +274,11 @@ def validate_and_cleanup_agent_states():
             try:
                 agent_data = json.loads(raw_agent_data)
                 registered = is_user_registered(agent_id)
-                if not registered:
-                    if not agent_data.get('current_call_id', None):
-                        remove_agent_from_cache(agent_id)
-                        log_agent_authentication_action(int(agent_id), 'logout')
-                        logger.info(f"Removed unregistered agent {agent_id} from cache")
-                        continue #TODO send event to client to logout if agent is unregistered.
+                if not registered and agent_data.get('state') == 'idle':
+                    remove_agent_from_cache(agent_id)
+                    log_agent_authentication_action(int(agent_id), 'logout')
+                    logger.info(f"Removed unregistered agent {agent_id} from cache")
+                    continue #TODO send event to client to logout if agent is unregistered.
 
                 
                 # Skip if agent is not busy
