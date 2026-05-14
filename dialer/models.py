@@ -241,6 +241,32 @@ class CallLog(models.Model):
         return f"Call {self.call_id}: → ({self.status})"
 
 
+class CallLogExports(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    filepath = models.CharField(max_length=500, blank=True, null=True)
+    error = models.TextField(blank=True, null=True)
+    filters = models.JSONField(default=dict, blank=True)
+    total_recordings = models.PositiveIntegerField(default=0)
+    exported_recordings = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Call Log Export'
+        verbose_name_plural = 'Call Log Exports'
+
+    def __str__(self):
+        return f"Call log export {self.id} ({self.status})"
+
+
 class Campaign(models.Model):
     """
     Campaign model representing a calling campaign (replacement for Telecard).

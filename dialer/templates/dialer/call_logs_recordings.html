@@ -317,8 +317,8 @@
                 <div class="muted" id="progressText">Preparing downloads...</div>
                 <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
             </div>
-            <button class="button secondary" id="downloadAllButton" type="button" data-download-all-url="/api/api/dialer/call-logs-recordings/downloads/?{{ request.GET.urlencode }}" {% if recording_count == 0 %}disabled{% endif %}>
-                Download All
+            <button class="button secondary" id="downloadAllButton" type="button" data-export-url="/api/api/dialer/call-logs-recordings/exports/start/?{{ request.GET.urlencode }}" {% if recording_count == 0 %}disabled{% endif %}>
+                Export All
             </button>
         </section>
 
@@ -417,32 +417,50 @@
             button.disabled = true;
             progressWrap.style.display = 'block';
             progressBar.style.width = '0%';
-            progressText.textContent = 'Preparing downloads...';
+            progressText.textContent = 'Queuing export...';
 
             try {
-                const response = await fetch(button.dataset.downloadAllUrl);
+                const response = await fetch(button.dataset.exportUrl);
                 const data = await response.json();
                 if (!response.ok || !data.success) {
-                    throw new Error(data.message || 'Could not prepare downloads');
+                    throw new Error(data.message || 'Could not start export');
                 }
 
-                const recordings = data.recordings || [];
-                if (!recordings.length) {
+                if (!data.total_recordings) {
                     progressText.textContent = 'No recordings found for these filters.';
                     return;
                 }
 
-                for (let index = 0; index < recordings.length; index += 1) {
-                    const recording = recordings[index];
-                    triggerDownload(recording.recording_url, recording.filename);
-                    const completed = index + 1;
-                    progressBar.style.width = `${Math.round((completed / recordings.length) * 100)}%`;
-                    progressText.textContent = `Started ${completed} of ${recordings.length} downloads`;
-                    await new Promise(resolve => setTimeout(resolve, 350));
+                progressText.textContent = `Export queued: 0 of ${data.total_recordings}`;
+                const statusUrl = `/api/api/dialer/call-logs-recordings/exports/${data.export_id}/status/`;
+
+                while (true) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    const statusResponse = await fetch(statusUrl);
+                    const statusData = await statusResponse.json();
+                    if (!statusResponse.ok || !statusData.success) {
+                        throw new Error(statusData.message || 'Could not read export status');
+                    }
+
+                    const total = statusData.total_recordings || data.total_recordings;
+                    const exported = statusData.exported_recordings || 0;
+                    const percent = total ? Math.round((exported / total) * 100) : 0;
+                    progressBar.style.width = `${percent}%`;
+                    progressText.textContent = `Export ${statusData.status}: ${exported} of ${total}`;
+
+                    if (statusData.status === 'completed') {
+                        progressBar.style.width = '100%';
+                        progressText.textContent = 'Export completed. Download the ZIP from Django admin.';
+                        break;
+                    }
+
+                    if (statusData.status === 'failed') {
+                        throw new Error(statusData.error || 'Export failed');
+                    }
                 }
             } catch (error) {
                 alert(error.message);
-                progressText.textContent = 'Download failed.';
+                progressText.textContent = 'Export failed.';
             } finally {
                 button.disabled = false;
             }

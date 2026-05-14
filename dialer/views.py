@@ -18,7 +18,7 @@ from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from voice_orchestrator.utils import generate_presigned_s3_url
-from .models import Agent, Campaign, Lead, CallLog, Team
+from .models import Agent, Campaign, Lead, CallLog, Team, CallLogExports
 from dialer.utils import build_originate_command, get_disposition_mapping, active_campaigns
 from dialer.tasks import formdata_scheduled_task
 
@@ -812,6 +812,8 @@ def _call_log_recording_queryset(request):
             error_message = 'Start date cannot be after end date.'
             call_logs = CallLog.objects.none()
         else:
+            filters['start_utc'] = start_pk.astimezone(pytz.utc).isoformat()
+            filters['end_utc'] = end_pk.astimezone(pytz.utc).isoformat()
             call_logs = call_logs.filter(
                 initiated_at__gte=start_pk.astimezone(pytz.utc),
                 initiated_at__lte=end_pk.astimezone(pytz.utc),
@@ -867,6 +869,54 @@ def call_logs_recordings_dashboard(request):
         'recording_count': recording_count,
     }
     return render(request, 'dialer/call_logs_recordings.html', context)
+
+
+@require_http_methods(["GET"])
+def start_call_logs_recording_export(request):
+    call_logs, filters, error_message, _ = _call_log_recording_queryset(request)
+    if error_message:
+        return JsonResponse({'success': False, 'message': error_message}, status=400)
+
+    recording_count = call_logs.filter(recording_url__startswith='https://').count()
+    if not recording_count:
+        return JsonResponse({
+            'success': True,
+            'export_id': None,
+            'status': 'completed',
+            'total_recordings': 0,
+        })
+
+    export = CallLogExports.objects.create(
+        filters=filters,
+        total_recordings=recording_count,
+    )
+
+    from dialer.tasks import export_call_log_recordings_task
+    export_call_log_recordings_task.delay(export.id)
+
+    return JsonResponse({
+        'success': True,
+        'export_id': export.id,
+        'status': export.status,
+        'total_recordings': recording_count,
+    })
+
+
+@require_http_methods(["GET"])
+def call_logs_recording_export_status(request, export_id):
+    try:
+        export = CallLogExports.objects.get(id=export_id)
+    except CallLogExports.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'Export not found'}, status=404)
+
+    return JsonResponse({
+        'success': True,
+        'export_id': export.id,
+        'status': export.status,
+        'total_recordings': export.total_recordings,
+        'exported_recordings': export.exported_recordings,
+        'error': export.error,
+    })
 
 
 @require_http_methods(["GET"])

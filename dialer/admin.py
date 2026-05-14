@@ -1,9 +1,12 @@
-from django.contrib import admin
+import os
 
-# Register your models here.
 from django.contrib import admin
+from django.http import FileResponse, Http404
+from django.urls import path
+from django.urls import reverse
+
 from django.utils.html import format_html
-from .models import Agent, CallLog, Campaign, Lead, Team
+from .models import Agent, CallLog, CallLogExports, Campaign, Lead, Team
 
 # Inline for CallLog in Agent admin
 class CallLogInline(admin.TabularInline):
@@ -40,6 +43,43 @@ class CallLogAdmin(admin.ModelAdmin):
     search_fields = ('call_id', 'lead__phone_number')
     readonly_fields = ('call_id', 'initiated_at', 'ended_at', 'duration_seconds')
     date_hierarchy = 'initiated_at'
+
+
+@admin.register(CallLogExports)
+class CallLogExportsAdmin(admin.ModelAdmin):
+    list_display = ('id', 'status', 'total_recordings', 'exported_recordings', 'created_at', 'download_zip')
+    list_filter = ('status', 'created_at')
+    readonly_fields = ('status', 'filepath', 'error', 'filters', 'total_recordings', 'exported_recordings', 'created_at', 'updated_at', 'download_zip')
+    fields = ('status', 'filepath', 'download_zip', 'error', 'filters', 'total_recordings', 'exported_recordings', 'created_at', 'updated_at')
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<int:export_id>/download/',
+                self.admin_site.admin_view(self.download_export),
+                name='dialer_calllogexports_download',
+            ),
+        ]
+        return custom_urls + urls
+
+    def download_zip(self, obj):
+        if not obj or obj.status != 'completed' or not obj.filepath:
+            return '-'
+        url = reverse('admin:dialer_calllogexports_download', args=[obj.id])
+        return format_html('<a class="button" href="{}">Download ZIP</a>', url)
+    download_zip.short_description = 'Download'
+
+    def download_export(self, request, export_id):
+        export = self.get_object(request, export_id)
+        if not export or not export.filepath or not os.path.exists(export.filepath):
+            raise Http404('Export file not found')
+        return FileResponse(
+            open(export.filepath, 'rb'),
+            as_attachment=True,
+            filename=os.path.basename(export.filepath),
+        )
+
 
 # Admin for Campaign
 @admin.register(Campaign)
