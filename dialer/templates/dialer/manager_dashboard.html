@@ -266,7 +266,7 @@
             font-weight: 900;
         }
 
-        .campaign-tag {
+        .team-tag {
             background: #eef2ff;
             border-radius: 999px;
             color: #3730a3;
@@ -346,7 +346,7 @@
                     <input id="date" name="date" type="date" value="{{ selected_date }}" required>
                 </div>
                 <button class="button" type="submit">Filter</button>
-                <a class="button secondary" href="{{ request.get_full_path }}">Refresh</a>
+                <a class="button secondary" href="{{ refresh_url }}">Refresh</a>
             </form>
         </section>
 
@@ -384,7 +384,7 @@
         <section class="panel">
             <div class="panel-header">
                 <h2>Agent Monitor</h2>
-                <div class="last-refresh">Last refreshed {{ last_refreshed|date:"M d, Y H:i:s" }} PKT</div>
+                <div class="last-refresh">Last refreshed {{ last_refreshed_display }} PKT</div>
             </div>
 
             {% if agent_rows %}
@@ -400,7 +400,8 @@
                                 <th>Connect Ratio</th>
                                 <th>Logged Out Today</th>
                                 <th>First Log</th>
-                                <th>Campaign</th>
+                                <th>Last Log</th>
+                                <th>Team</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -408,7 +409,7 @@
                                 <tr>
                                     <td>
                                         <div class="agent-name">{{ row.agent_name }}</div>
-                                        <div class="muted">Ext {{ row.extension }} - {{ row.teams }}</div>
+                                        <div class="muted">Ext {{ row.extension }}</div>
                                     </td>
                                     <td>
                                         <span class="status-pill {{ row.status_class }}">{{ row.status_label }}</span>
@@ -416,8 +417,8 @@
                                     </td>
                                     <td>
                                         <div class="muted">{{ row.status_detail }}</div>
-                                        {% if row.status_time %}
-                                            <strong>{{ row.status_time|date:"H:i:s" }}</strong>
+                                        {% if row.status_time_display %}
+                                            <strong>{{ row.status_time_display }} PKT</strong>
                                         {% else %}
                                             <strong>Not recorded</strong>
                                         {% endif %}
@@ -430,22 +431,35 @@
                                     <td><span class="ratio">{{ row.connect_ratio }}%</span></td>
                                     <td>
                                         <strong>{{ row.logged_out_duration }}</strong>
-                                        <div class="muted">{{ row.logged_out_seconds }} sec</div>
+                                        {% if row.last_logout_time_display %}
+                                            <div class="muted">Last logout {{ row.last_logout_time_display }} PKT</div>
+                                        {% else %}
+                                            <div class="muted">No logout today</div>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         {% if row.first_log %}
                                             <strong>{{ row.first_log.action|title }}</strong>
-                                            <div class="muted">{{ row.first_log_time|date:"H:i:s" }}</div>
+                                            <div class="muted">{{ row.first_log_time_display }} PKT</div>
                                         {% else %}
                                             <strong>No log</strong>
                                             <div class="muted">For selected day</div>
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if row.selected_campaign %}
-                                            <span class="campaign-tag">{{ row.selected_campaign.campaign_name|default:row.selected_campaign.campaign_id }}</span>
+                                        {% if row.last_log %}
+                                            <strong>{{ row.last_log.action|title }}</strong>
+                                            <div class="muted">{{ row.last_log_time_display }} PKT</div>
                                         {% else %}
-                                            <span class="muted">No selected campaign</span>
+                                            <strong>No log</strong>
+                                            <div class="muted">For selected day</div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if row.teams %}
+                                            <span class="team-tag">{{ row.teams }}</span>
+                                        {% else %}
+                                            <span class="muted">No team</span>
                                         {% endif %}
                                     </td>
                                 </tr>

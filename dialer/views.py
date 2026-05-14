@@ -35,6 +35,12 @@ def _format_duration(seconds):
     return f"{minutes}m"
 
 
+def _format_pkt_time(value):
+    if not value:
+        return None
+    return value.astimezone(PKT).strftime('%H:%M')
+
+
 def _safe_load_json(raw_data):
     if not raw_data:
         return {}
@@ -46,10 +52,16 @@ def _safe_load_json(raw_data):
 
 
 def _get_agent_summary_data(agent_id, target_date):
+    day_start_pk = PKT.localize(datetime.combine(target_date, datetime.min.time()))
+    day_end_pk = PKT.localize(datetime.combine(target_date, datetime.max.time().replace(microsecond=0)))
+    day_start_utc = day_start_pk.astimezone(pytz.utc)
+    day_end_utc = day_end_pk.astimezone(pytz.utc)
+
     logs = (
         AgentLogs.objects.filter(
             agent_id=agent_id,
-            created_at__date=target_date,
+            created_at__gte=day_start_utc,
+            created_at__lte=day_end_utc,
             action__in=['login', 'logout']
         )
         .order_by('created_at')
@@ -803,7 +815,7 @@ def manager_dashboard(request):
         log.agent_id: log
         for log in (
             AgentLogs.objects
-            .filter(created_at__lte=day_end_utc, action='logout')
+            .filter(created_at__gte=day_start_utc, created_at__lte=day_end_utc, action='logout')
             .order_by('agent_id', '-created_at')
             .distinct('agent_id')
         )
@@ -812,7 +824,7 @@ def manager_dashboard(request):
     agents = (
         Agent.objects
         .filter(is_active=True)
-        .select_related('user', 'selected_campaign')
+        .select_related('user')
         .prefetch_related('teams')
         .order_by('user__first_name', 'user__username', 'extension')
     )
@@ -851,6 +863,7 @@ def manager_dashboard(request):
         connect_ratio = round((agent_answered_calls / agent_total_calls) * 100, 1) if agent_total_calls else 0
 
         first_log = agent_logs[0] if agent_logs else None
+        last_log = agent_logs[-1] if agent_logs else None
         latest_login = latest_login_logs.get(agent.id)
         latest_logout = latest_logout_logs.get(agent.id)
 
@@ -877,6 +890,7 @@ def manager_dashboard(request):
             'status_class': 'on-call' if is_on_call else 'active' if is_live else 'logged-out',
             'status_detail': status_detail,
             'status_time': status_time,
+            'status_time_display': _format_pkt_time(status_time),
             'state_label': (state or 'offline').replace('_', ' ').title(),
             'current_call_id': live_state.get('current_call_id') if live_state else None,
             'total_calls': agent_total_calls,
@@ -885,8 +899,10 @@ def manager_dashboard(request):
             'logged_out_duration': _format_duration(logged_out_seconds),
             'logged_out_seconds': logged_out_seconds,
             'first_log': first_log,
-            'first_log_time': first_log.created_at.astimezone(karachi_tz) if first_log else None,
-            'selected_campaign': agent.selected_campaign,
+            'first_log_time_display': _format_pkt_time(first_log.created_at) if first_log else None,
+            'last_log': last_log,
+            'last_log_time_display': _format_pkt_time(last_log.created_at) if last_log else None,
+            'last_logout_time_display': _format_pkt_time(latest_logout.created_at) if latest_logout else None,
         })
 
     agent_rows.sort(key=lambda row: (row['status_class'] == 'logged-out', -row['total_calls'], row['agent_name']))
@@ -894,7 +910,8 @@ def manager_dashboard(request):
     context = {
         'agent_rows': agent_rows,
         'selected_date': selected_date_value,
-        'last_refreshed': now_pk,
+        'last_refreshed_display': now_pk.strftime('%b %d, %Y %H:%M:%S'),
+        'refresh_url': request.get_full_path() if request.get_full_path().startswith('/api/') else f'/api{request.get_full_path()}',
         'error_message': error_message,
         'summary': {
             'total_agents': len(agent_rows),
