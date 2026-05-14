@@ -7,7 +7,7 @@ from voice_orchestrator.utils import normalize_phone_number
 import time
 import pandas as pd
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +226,35 @@ def refill_emi_campaign_data(agent_ids):
         total_created += len(leads_to_create)
 
     return {"success": True, "total_leads_created": total_created}
+
+
+def fetch_verified_emi_phone_numbers(target_date=None):
+    verified_date = target_date or (timezone.localdate() - timedelta(days=1))
+    verified_date_value = verified_date.strftime("%Y-%m-%d")
+
+    api_url = f"{UDHAAR_BASE_URL}telecard/emi-verified-users/"
+    headers = {"X-API-Key": settings.API_KEY}
+    payload = {"date": verified_date_value}
+
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        response_data = response.json()
+    except Exception as exc:
+        logger.exception("fetch_verified_emi_phone_numbers: API call failed: {}".format(exc))
+        return []
+
+    if not response_data.get("success"):
+        logger.error("fetch_verified_emi_phone_numbers: API returned failure: {}".format(response_data))
+        return []
+
+    verified_phones = response_data.get("data") or []
+    if not isinstance(verified_phones, list):
+        logger.error("fetch_verified_emi_phone_numbers: invalid data payload: {}".format(response_data))
+        return []
+
+    return verified_phones
+
 
 def fetch_and_store_telebook_campaign():
     # return    

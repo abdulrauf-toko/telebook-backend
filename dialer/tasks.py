@@ -10,7 +10,7 @@ from events.utils import get_all_idle_agents_in_cache
 from voice_orchestrator.utils import normalize_phone_number
 import requests
 from django.conf import settings
-from dialer.udhaar_utils import UDHAAR_BASE_URL
+from dialer.udhaar_utils import UDHAAR_BASE_URL, fetch_verified_emi_phone_numbers
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +201,45 @@ def fetch_and_store_emi_campaigns(self):
     logger.info("EMI campaigns sync complete: {}".format(result))
     return result
 
+
+@app.task(bind=True)
+def sync_emi_converted_leads(self):
+    verified_phones = fetch_verified_emi_phone_numbers()
+    normalized_phones = {
+        normalize_phone_number(str(phone))
+        for phone in verified_phones
+        if phone
+    }
+    normalized_phones.discard(None)
+    normalized_phones.discard("")
+
+    if not normalized_phones:
+        result = {
+            "success": True,
+            "total_phones": 0,
+            "updated": 0,
+        }
+        logger.info("EMI converted sync complete: {}".format(result))
+        return result
+
+    latest_lead_ids = (
+        Lead.objects
+        .filter(phone_number__in=normalized_phones)
+        .order_by("phone_number", "-created_at", "-id")
+        .distinct("phone_number")
+        .values_list("id", flat=True)
+    )
+    updated_count = Lead.objects.filter(id__in=latest_lead_ids).update(emi_converted=True)
+
+    result = {
+        "success": True,
+        "total_phones": len(normalized_phones),
+        "updated": updated_count,
+    }
+    logger.info("EMI converted sync complete: {}".format(result))
+    return result
+
+
 @app.task
 def day_end_routine():
     make_campaigns_inactive()
@@ -212,4 +251,3 @@ def formdata_scheduled_task(lead_id):
     lead = Lead.objects.get(id=lead_id)
     queue_object = construct_queue_object(lead.campaign, lead)
     add_to_priority_queue_mapping(lead.campaign.agent_id, queue_object)
-

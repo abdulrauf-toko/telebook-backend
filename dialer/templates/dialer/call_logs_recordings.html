@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Logs Recordings</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #f4f7fb;
+            color: #1f2933;
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+            min-height: 100vh;
+            padding: 22px;
+        }
+
+        .shell {
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+
+        .header {
+            align-items: end;
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            color: #111827;
+            font-size: 30px;
+            line-height: 1.1;
+            margin-bottom: 6px;
+        }
+
+        .muted {
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .panel,
+        .summary {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(150px, 1fr)) auto;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        label {
+            color: #475569;
+            display: block;
+            font-size: 12px;
+            font-weight: 800;
+            margin-bottom: 7px;
+            text-transform: uppercase;
+        }
+
+        input,
+        select {
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            color: #111827;
+            font-size: 14px;
+            height: 40px;
+            padding: 0 10px;
+            width: 100%;
+        }
+
+        .button {
+            align-items: center;
+            background: #0f766e;
+            border: 0;
+            border-radius: 7px;
+            color: #fff;
+            cursor: pointer;
+            display: inline-flex;
+            font-size: 14px;
+            font-weight: 800;
+            height: 40px;
+            justify-content: center;
+            padding: 0 14px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .button.secondary {
+            background: #334155;
+        }
+
+        .button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .summary {
+            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            margin: 16px 0;
+            padding: 14px 16px;
+        }
+
+        .summary strong {
+            color: #111827;
+            font-size: 22px;
+        }
+
+        .progress-wrap {
+            display: none;
+            min-width: 280px;
+            width: min(420px, 100%);
+        }
+
+        .progress-track {
+            background: #e2e8f0;
+            border-radius: 999px;
+            height: 9px;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .progress-bar {
+            background: #14b8a6;
+            height: 100%;
+            transition: width 0.2s ease;
+            width: 0;
+        }
+
+        .error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #991b1b;
+            margin-bottom: 16px;
+            padding: 12px 14px;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            min-width: 980px;
+            width: 100%;
+        }
+
+        th {
+            background: #f8fafc;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 900;
+            padding: 13px 15px;
+            text-align: left;
+            text-transform: uppercase;
+        }
+
+        td {
+            border-top: 1px solid #edf2f7;
+            color: #243447;
+            padding: 14px 15px;
+            vertical-align: middle;
+        }
+
+        tbody tr:hover {
+            background: #f9fbfd;
+        }
+
+        .call-id {
+            color: #0f172a;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 12px;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .agent-name {
+            color: #111827;
+            font-weight: 850;
+        }
+
+        .badge {
+            border-radius: 999px;
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 850;
+            padding: 6px 10px;
+        }
+
+        .badge.yes {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge.no {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .empty {
+            color: #64748b;
+            padding: 46px 20px;
+            text-align: center;
+        }
+
+        @media (max-width: 1180px) {
+            .filters {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .header,
+            .summary {
+                align-items: stretch;
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 700px) {
+            body {
+                padding: 14px;
+            }
+
+            .filters {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <section class="header">
+            <div>
+                <h1>Call Logs Recordings</h1>
+                <div class="muted">Filter call logs and download recordings from S3.</div>
+            </div>
+        </section>
+
+        {% if error_message %}
+            <div class="error">{{ error_message }}</div>
+        {% endif %}
+
+        <section class="panel">
+            <form class="filters" method="GET" action="/api/api/dialer/call-logs-recordings/">
+                <div>
+                    <label for="start_date">Start Date</label>
+                    <input id="start_date" name="start_date" type="date" value="{{ filters.start_date }}" required>
+                </div>
+                <div>
+                    <label for="end_date">End Date</label>
+                    <input id="end_date" name="end_date" type="date" value="{{ filters.end_date }}" required>
+                </div>
+                <div>
+                    <label for="agent">Agent</label>
+                    <select id="agent" name="agent">
+                        <option value="">All agents</option>
+                        {% for agent in agents %}
+                            <option value="{{ agent.id }}" {% if filters.agent == agent.id|stringformat:"s" %}selected{% endif %}>
+                                {% if agent.user %}{{ agent.user.get_full_name|default:agent.user.username }}{% else %}Agent {{ agent.id }}{% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="team">Team</label>
+                    <select id="team" name="team">
+                        <option value="">All teams</option>
+                        {% for team in teams %}
+                            <option value="{{ team.id }}" {% if filters.team == team.id|stringformat:"s" %}selected{% endif %}>{{ team.get_name_display }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="emi_converted">EMI Converted</label>
+                    <select id="emi_converted" name="emi_converted">
+                        <option value="" {% if not filters.emi_converted %}selected{% endif %}>All</option>
+                        <option value="yes" {% if filters.emi_converted == "yes" %}selected{% endif %}>Yes</option>
+                        <option value="no" {% if filters.emi_converted == "no" %}selected{% endif %}>No</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="sort_by">Sort By</label>
+                    <select id="sort_by" name="sort_by">
+                        <option value="datetime_desc" {% if filters.sort_by == "datetime_desc" %}selected{% endif %}>Date newest</option>
+                        <option value="datetime_asc" {% if filters.sort_by == "datetime_asc" %}selected{% endif %}>Date oldest</option>
+                        <option value="duration_desc" {% if filters.sort_by == "duration_desc" %}selected{% endif %}>Duration high</option>
+                        <option value="duration_asc" {% if filters.sort_by == "duration_asc" %}selected{% endif %}>Duration low</option>
+                    </select>
+                </div>
+                <button class="button" type="submit">Apply</button>
+            </form>
+        </section>
+
+        <section class="summary">
+            <div>
+                <strong>{{ total_count }}</strong>
+                <span class="muted">call logs · {{ recording_count }} recordings</span>
+            </div>
+            <div class="progress-wrap" id="progressWrap">
+                <div class="muted" id="progressText">Preparing downloads...</div>
+                <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+            </div>
+            <button class="button secondary" id="downloadAllButton" type="button" data-download-all-url="/api/api/dialer/call-logs-recordings/downloads/?{{ request.GET.urlencode }}" {% if recording_count == 0 %}disabled{% endif %}>
+                Download All
+            </button>
+        </section>
+
+        <section class="panel">
+            {% if call_logs %}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Call ID</th>
+                                <th>Agent</th>
+                                <th>Date Time</th>
+                                <th>Duration</th>
+                                <th>EMI Converted</th>
+                                <th>Download</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in call_logs %}
+                                <tr>
+                                    <td><div class="call-id" title="{{ log.call_id }}">{{ log.call_id }}</div></td>
+                                    <td><div class="agent-name">{{ log.agent_name }}</div></td>
+                                    <td>{{ log.call_datetime_pkt }} PKT</td>
+                                    <td>{{ log.duration_seconds }} sec</td>
+                                    <td>
+                                        <span class="badge {% if log.lead and log.lead.emi_converted %}yes{% else %}no{% endif %}">
+                                            {{ log.emi_converted_display }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if log.has_call_recording %}
+                                            <button class="button" type="button" data-recording-url="/api/api/dialer/call-recordings/{{ log.call_id }}/">Download</button>
+                                        {% else %}
+                                            <button class="button" type="button" disabled>No Recording</button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty">No call logs found for the selected filters.</div>
+            {% endif %}
+        </section>
+    </main>
+
+    <script>
+        function triggerDownload(url, filename) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename || '';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        async function fetchRecordingUrl(endpoint) {
+            const response = await fetch(endpoint);
+            const data = await response.json();
+            if (!response.ok || !data.success || !data.recording_url) {
+                throw new Error(data.message || 'Recording is not available');
+            }
+            return data.recording_url;
+        }
+
+        document.addEventListener('click', async function (event) {
+            const button = event.target.closest('[data-recording-url]');
+            if (!button) {
+                return;
+            }
+
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Preparing...';
+
+            try {
+                const url = await fetchRecordingUrl(button.dataset.recordingUrl);
+                triggerDownload(url);
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        });
+
+        document.getElementById('downloadAllButton').addEventListener('click', async function () {
+            const button = this;
+            const progressWrap = document.getElementById('progressWrap');
+            const progressText = document.getElementById('progressText');
+            const progressBar = document.getElementById('progressBar');
+
+            button.disabled = true;
+            progressWrap.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Preparing downloads...';
+
+            try {
+                const response = await fetch(button.dataset.downloadAllUrl);
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Could not prepare downloads');
+                }
+
+                const recordings = data.recordings || [];
+                if (!recordings.length) {
+                    progressText.textContent = 'No recordings found for these filters.';
+                    return;
+                }
+
+                for (let index = 0; index < recordings.length; index += 1) {
+                    const recording = recordings[index];
+                    triggerDownload(recording.recording_url, recording.filename);
+                    const completed = index + 1;
+                    progressBar.style.width = `${Math.round((completed / recordings.length) * 100)}%`;
+                    progressText.textContent = `Started ${completed} of ${recordings.length} downloads`;
+                    await new Promise(resolve => setTimeout(resolve, 350));
+                }
+            } catch (error) {
+                alert(error.message);
+                progressText.textContent = 'Download failed.';
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

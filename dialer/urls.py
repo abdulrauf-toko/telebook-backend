@@ -14,6 +14,8 @@ urlpatterns = [
     path('dashboard/', views.agent_dashboard, name='agent-dashboard'),
     path('manager-dashboard/', views.manager_dashboard, name='manager-dashboard'),
     path('all-call-logs/', views.all_call_logs_dashboard, name='all-call-logs-dashboard'),
+    path('call-logs-recordings/', views.call_logs_recordings_dashboard, name='call-logs-recordings-dashboard'),
+    path('call-logs-recordings/downloads/', views.call_logs_recording_downloads, name='call-logs-recording-downloads'),
     path('manual-call-log/', views.manual_call_log, name='manual-call-log'),
     path('form-submission/', views.formdata_submission, name='form-submission'),
     

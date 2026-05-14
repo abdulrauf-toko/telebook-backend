@@ -12,12 +12,13 @@ import pytz
 from events.utils import mark_agent_logged_in_cache, logout_agent, add_active_call_in_cache, log_agent_authentication_action
 from events.models import AgentLogs
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 
 from django.contrib.auth import authenticate, login, logout
 from voice_orchestrator.freeswitch import fs_manager
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, ACTIVE_CALLS_REDIS_KEY, AGENT_STATE_REDIS_KEY, COMPLETED_CALLS_REDIS_KEY, LOCK_TIMEOUTS, SLEEP, conn
 from voice_orchestrator.utils import generate_presigned_s3_url
-from .models import Agent, Campaign, Lead, CallLog
+from .models import Agent, Campaign, Lead, CallLog, Team
 from dialer.utils import build_originate_command, get_disposition_mapping, active_campaigns
 from dialer.tasks import formdata_scheduled_task
 
@@ -772,6 +773,134 @@ def all_call_logs_dashboard(request):
     }
 
     return render(request, 'dialer/all_call_logs_dashboard.html', context)
+
+
+def _call_log_recording_queryset(request):
+    karachi_tz = pytz.timezone('Asia/Karachi')
+    now_pk = timezone.now().astimezone(karachi_tz)
+
+    start_date_value = request.GET.get('start_date') or now_pk.date().isoformat()
+    end_date_value = request.GET.get('end_date') or now_pk.date().isoformat()
+    agent_id = request.GET.get('agent') or ''
+    team_id = request.GET.get('team') or ''
+    sort_by = request.GET.get('sort_by') or 'datetime_desc'
+    emi_converted = request.GET.get('emi_converted') or ''
+
+    filters = {
+        'start_date': start_date_value,
+        'end_date': end_date_value,
+        'agent': agent_id,
+        'team': team_id,
+        'sort_by': sort_by,
+        'emi_converted': emi_converted,
+    }
+    error_message = None
+
+    call_logs = (
+        CallLog.objects
+        .select_related('agent__user', 'lead')
+        .prefetch_related('agent__teams')
+    )
+
+    try:
+        start_date = datetime.strptime(start_date_value, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_value, '%Y-%m-%d').date()
+        start_pk = karachi_tz.localize(datetime.combine(start_date, datetime.min.time()))
+        end_pk = karachi_tz.localize(datetime.combine(end_date, datetime.max.time().replace(microsecond=0)))
+
+        if start_pk > end_pk:
+            error_message = 'Start date cannot be after end date.'
+            call_logs = CallLog.objects.none()
+        else:
+            call_logs = call_logs.filter(
+                initiated_at__gte=start_pk.astimezone(pytz.utc),
+                initiated_at__lte=end_pk.astimezone(pytz.utc),
+            )
+    except (TypeError, ValueError):
+        error_message = 'Start and end dates must be valid.'
+        call_logs = CallLog.objects.none()
+
+    if agent_id:
+        call_logs = call_logs.filter(agent_id=agent_id)
+
+    if team_id:
+        call_logs = call_logs.filter(agent__teams__id=team_id)
+
+    if emi_converted == 'yes':
+        call_logs = call_logs.filter(lead__emi_converted=True)
+    elif emi_converted == 'no':
+        call_logs = call_logs.filter(Q(lead__emi_converted=False) | Q(lead__emi_converted__isnull=True))
+
+    sort_options = {
+        'datetime_desc': '-initiated_at',
+        'datetime_asc': 'initiated_at',
+        'duration_desc': '-duration_seconds',
+        'duration_asc': 'duration_seconds',
+    }
+    call_logs = call_logs.order_by(sort_options.get(sort_by, '-initiated_at')).distinct()
+
+    return call_logs, filters, error_message, karachi_tz
+
+
+def call_logs_recordings_dashboard(request):
+    call_logs, filters, error_message, karachi_tz = _call_log_recording_queryset(request)
+    recording_count = call_logs.filter(recording_url__startswith='https://').count()
+
+    for log in call_logs:
+        log.call_datetime_pkt = log.initiated_at.astimezone(karachi_tz).strftime('%Y-%m-%d %H:%M:%S') if log.initiated_at else ''
+        log.agent_name = (
+            log.agent.user.get_full_name()
+            or log.agent.user.username
+            if log.agent and log.agent.user
+            else 'No agent'
+        )
+        log.emi_converted_display = 'Yes' if log.lead and log.lead.emi_converted else 'No'
+        log.has_call_recording = bool(log.recording_url and log.recording_url.startswith('https://'))
+
+    context = {
+        'call_logs': call_logs,
+        'agents': Agent.objects.select_related('user').order_by('user__first_name', 'user__username', 'extension'),
+        'teams': Team.objects.order_by('name'),
+        'filters': filters,
+        'error_message': error_message,
+        'total_count': call_logs.count(),
+        'recording_count': recording_count,
+    }
+    return render(request, 'dialer/call_logs_recordings.html', context)
+
+
+@require_http_methods(["GET"])
+def call_logs_recording_downloads(request):
+    call_logs, _, error_message, karachi_tz = _call_log_recording_queryset(request)
+    if error_message:
+        return JsonResponse({'success': False, 'message': error_message}, status=400)
+
+    recordings = []
+    for log in call_logs.filter(recording_url__startswith='https://'):
+        try:
+            signed_url = generate_presigned_s3_url(log.recording_url)
+        except Exception as exc:
+            logger.exception(f"Error signing recording for {log.call_id}: {exc}")
+            continue
+
+        timestamp = log.initiated_at.astimezone(karachi_tz).strftime('%Y%m%d_%H%M%S') if log.initiated_at else 'unknown_time'
+        recordings.append({
+            'call_id': log.call_id,
+            'agent_name': (
+                log.agent.user.get_full_name()
+                or log.agent.user.username
+                if log.agent and log.agent.user
+                else 'No agent'
+            ),
+            'filename': f'{timestamp}_{log.call_id}.mp3',
+            'recording_url': signed_url,
+        })
+
+    return JsonResponse({
+        'success': True,
+        'total': len(recordings),
+        'recordings': recordings,
+    })
 
 
 def manager_dashboard(request):

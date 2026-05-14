@@ -362,6 +362,8 @@ class Lead(models.Model):
         help_text="Unique EMI lead identifier (from Udhaar)"
     )
 
+    emi_converted = models.BooleanField(default=False, null=True)
+
     emi_stage = models.CharField(
         max_length=50,
         blank=True,
