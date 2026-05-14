@@ -51,6 +51,35 @@ def _safe_load_json(raw_data):
         return {}
 
 
+def _normalize_phone_number(phone_number: str) -> str:
+    cleaned = ''.join(char for char in phone_number if char.isdigit() or char == '+')
+    if cleaned.startswith('+92'):
+        cleaned = cleaned[3:]
+        if cleaned.startswith('0'):
+            cleaned = cleaned[1:]
+        return f'0{cleaned}'
+
+    if cleaned.startswith('0092'):
+        cleaned = cleaned[4:]
+        if cleaned.startswith('0'):
+            cleaned = cleaned[1:]
+        return f'0{cleaned}'
+
+    if cleaned.startswith('92') and len(cleaned) > 2:
+        cleaned = cleaned[2:]
+        if cleaned.startswith('0'):
+            cleaned = cleaned[1:]
+        return f'0{cleaned}'
+
+    if cleaned.startswith('0'):
+        return cleaned
+
+    if len(cleaned) >= 7:
+        return f'0{cleaned}'
+
+    return cleaned
+
+
 def _get_agent_summary_data(agent_id, target_date):
     day_start_pk = PKT.localize(datetime.combine(target_date, datetime.min.time()))
     day_end_pk = PKT.localize(datetime.combine(target_date, datetime.max.time().replace(microsecond=0)))
@@ -224,12 +253,18 @@ def initiate_call(request):
                 'success': False,
                 'message': 'phone_number and username are required'
             }, status=400)
-        
-        # Validate phone number format (should start with 03xx)
-        if not phone_number.startswith('03') or len(phone_number) != 11:
+
+        phone_number = _normalize_phone_number(str(phone_number))
+
+        if not phone_number.startswith('0'):
             return JsonResponse({
                 'success': False,
-                'message': 'Invalid phone number format. Should start with 03xx and be 11 digits'
+                'message': 'Invalid phone number format. Should start with 0'
+            }, status=400)
+        if len(phone_number) < 7 or len(phone_number) > 20:
+            return JsonResponse({
+                'success': False,
+                'message': 'Invalid phone number length. Must be between 7 and 20 digits.'
             }, status=400)
         
         try:
@@ -471,7 +506,7 @@ def manual_call_log(request):
 
         else:
             phone_number = request.POST.get('phone_number', '').strip()
-            cleaned_phone_number = ''.join(char for char in phone_number if char.isdigit() or char == '+')
+            cleaned_phone_number = _normalize_phone_number(phone_number)
 
             if not cleaned_phone_number:
                 error_message = 'Phone number is required.'
