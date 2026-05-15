@@ -16,6 +16,7 @@ class Team(models.Model):
     NAME_CHOICES = [
         ('saddar_growth', "Saddar Growth"),
         ('rupin_emi', "Rupin EMI"),
+        ('oscar', "Oscar"),
     ]
 
     name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
