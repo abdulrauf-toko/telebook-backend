@@ -301,12 +301,25 @@ def export_today_call_logs_to_csv(start_date: date, end_date: date) -> str:
                     if campaign and campaign.campaign_type == 'rupin_emi':
                         customer_segment = None
                         segment = "rupin-emi-campaign"
-                    else:
+                    elif campaign and campaign.campaign_type == 'saddar_growth':
                         customer_segment = campaign.segment
                         segment = "specialized-segment-campaign" 
+                    elif campaign and campaign.campaign_type == 'oscar':
+                        customer_segment = campaign.segment
+                        segment = "oscar-campaign"
+                    elif campaign and campaign.campaign_type == 'emi-survey':
+                        customer_segment = campaign.segment
+                        segment = "emi-survey-campaign"
                 else:
                     if call_log.agent:
-                        segment = "rupin-emi-campaign"
+                        if call_log.agent.teams.filter(name="rupin_emi").exists():
+                            segment = "rupin-emi-campaign"
+                        elif call_log.agent.teams.filter(name="saddar_growth").exists():
+                            segment = "specialized-segment-campaign"
+                        elif call_log.agent.teams.filter(name="oscar").exists():
+                            segment = "oscar-campaign"
+                        elif call_log.agent.teams.filter(name="other").exists():
+                            segment = None
                     else:
                         segment = None
                     follow_up_date = None
