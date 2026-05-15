@@ -127,7 +127,7 @@ class Agent(models.Model):
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            # self._sync_freeswitch_user(old_agent) 
+            self._sync_freeswitch_user(old_agent) 
 
     def delete(self, *args, **kwargs):
         extension = self.extension
