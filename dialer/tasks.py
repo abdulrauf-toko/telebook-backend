@@ -341,9 +341,10 @@ def export_call_log_recordings_task(self, export_id):
                 call_date = log.initiated_at.astimezone(PKT).date().isoformat() if log.initiated_at else "unknown_date"
                 agent_folder = _sanitize_export_part(agent_name)
                 phone = _sanitize_export_part(log.lead.phone_number if log.lead and log.lead.phone_number else log.to_number)
-                lead_stage = _sanitize_export_part(log.lead.emi_stage if log.lead and log.lead.emi_stage else log.status)
+                lead_stage = _sanitize_export_part(log.lead.emi_stage if log.lead and log.lead.emi_stage else "log.status")
+                emi_converted = "converted" if log.lead and log.lead.emi_converted else "not_converted"
                 original_filename = _sanitize_export_part(os.path.basename(urlparse(log.recording_url).path) or f"{log.call_id}.mp3")
-                filename = f"{agent_folder}_{phone}_{lead_stage}_{original_filename}"
+                filename = f"{agent_folder}_{phone}_{lead_stage}_{emi_converted}_{original_filename}"
                 local_path = os.path.join(work_dir, f"{log.id}_{filename}")
                 archive_path = os.path.join(call_date, agent_folder, filename)
 
