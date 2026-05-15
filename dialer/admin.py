@@ -4,9 +4,11 @@ from django.contrib import admin
 from django.http import FileResponse, Http404
 from django.urls import path
 from django.urls import reverse
-
+from django import forms
 from django.utils.html import format_html
-from .models import Agent, CallLog, CallLogExports, Campaign, Lead, Team
+from django.contrib import messages
+from .models import Agent, CallLog, CallLogExports, Campaign, Lead, Team, BulkLeadImport
+from .csv_import_utils import process_csv_import
 
 # Inline for CallLog in Agent admin
 class CallLogInline(admin.TabularInline):
@@ -108,3 +110,161 @@ class LeadAdmin(admin.ModelAdmin):
             'fields': ('customer_segment', 'last_call_date', 'last_order_details', 'month_gmv', 'overall_gmv', 'metadata')
         }),
     )
+
+
+# ==================== CSV Import Admin ====================
+
+class BulkLeadImportForm(forms.ModelForm):
+    """Custom form for CSV import with file upload and campaign type selection"""
+    
+    csv_file = forms.FileField(
+        label='CSV File',
+        help_text='Upload a CSV file with columns: Agent Username, Phone Number, Address, City',
+        required=False,
+    )
+    
+    class Meta:
+        model = BulkLeadImport
+        fields = ['campaign_type']
+        
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Hide auto-generated fields for display purposes
+        if self.instance.pk:
+            # Show details for existing imports
+            self.fields.pop('csv_file', None)
+
+
+@admin.register(BulkLeadImport)
+class BulkLeadImportAdmin(admin.ModelAdmin):
+    """Admin interface for bulk lead imports via CSV"""
+    
+    form = BulkLeadImportForm
+    
+    list_display = ('id', 'campaign_type', 'status', 'total_records', 'processed_records', 
+                    'campaigns_created', 'leads_created', 'leads_updated', 'created_at', 'view_details')
+    list_filter = ('status', 'campaign_type', 'created_at')
+    readonly_fields = ('status', 'total_records', 'processed_records', 'campaigns_created', 
+                      'leads_created', 'leads_updated', 'error_message', 'details_display', 
+                      'created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Import Configuration', {
+            'fields': ('campaign_type', 'csv_file'),
+            'classes': ('wide',),
+        }),
+        ('Results', {
+            'fields': ('status', 'total_records', 'processed_records', 'campaigns_created', 
+                      'leads_created', 'leads_updated'),
+            'classes': ('collapse',),
+        }),
+        ('Error Details', {
+            'fields': ('error_message', 'details_display'),
+            'classes': ('collapse',),
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    
+    def get_fieldsets(self, request, obj=None):
+        """Customize fieldsets based on whether we're adding or editing"""
+        if obj is None:
+            # Adding new import
+            return (
+                ('Import Configuration', {
+                    'fields': ('campaign_type', 'csv_file'),
+                    'description': 'Upload a CSV file with columns: Agent Username, Phone Number, Address, City',
+                    'classes': ('wide',),
+                }),
+            )
+        else:
+            # Editing existing import - show results
+            return self.fieldsets
+    
+    def get_readonly_fields(self, request, obj=None):
+        """Make all fields readonly for existing imports"""
+        if obj is not None:
+            # For editing existing records, make everything readonly
+            return self.readonly_fields + ('campaign_type',)
+        return self.readonly_fields
+    
+    def details_display(self, obj):
+        """Display formatted error and import details"""
+        if not obj or not obj.details:
+            return '-'
+        
+        details = obj.details
+        html = '<div style="font-family: monospace; font-size: 12px;">'
+        
+        if details.get('agent_errors'):
+            html += '<h4>Agent Errors:</h4><ul style="margin: 5px 0;">'
+            for error in details['agent_errors']:
+                html += f'<li><strong>{error.get("agent", "Unknown")}</strong>: {error.get("error", "Unknown error")}</li>'
+            html += '</ul>'
+        
+        if details.get('lead_errors'):
+            html += '<h4>Lead Errors (first 10):</h4><ul style="margin: 5px 0;">'
+            for error in details['lead_errors'][:10]:
+                html += f'<li><strong>{error.get("agent", "")}</strong> | {error.get("phone_number", "")}: {error.get("error", "Unknown error")}</li>'
+            if len(details['lead_errors']) > 10:
+                html += f'<li>... and {len(details["lead_errors"]) - 10} more errors</li>'
+            html += '</ul>'
+        
+        html += '</div>'
+        return format_html(html)
+    details_display.short_description = 'Import Details'
+    
+    def view_details(self, obj):
+        """Link to view full details"""
+        if obj.status in ['failed', 'completed'] and (obj.details or obj.error_message):
+            return format_html('<span style="color: green;">✓ View</span>')
+        elif obj.status == 'pending':
+            return 'Pending...'
+        elif obj.status == 'processing':
+            return 'Processing...'
+        return '-'
+    view_details.short_description = 'Status'
+    
+    def response_add(self, request, obj, post_url_unchanged=False):
+        """Override response after form submission to process CSV"""
+        # Check if CSV file was uploaded
+        if 'csv_file' in request.FILES:
+            csv_file = request.FILES['csv_file']
+            campaign_type = obj.campaign_type
+            
+            if not campaign_type:
+                messages.error(request, 'Campaign type is required')
+                return super().response_add(request, obj, post_url_unchanged)
+            
+            try:
+                # Process the CSV, passing the already-created import_record
+                success, import_record, results = process_csv_import(csv_file, campaign_type, import_record=obj)
+                
+                if success:
+                    messages.success(
+                        request,
+                        f'✓ Import completed successfully!\n'
+                        f'  • Processed: {results["processed_records"]}/{results["total_records"]} records\n'
+                        f'  • Campaigns created: {results["campaigns_created"]}\n'
+                        f'  • Leads created: {results["leads_created"]}\n'
+                        f'  • Leads updated: {results["leads_updated"]}'
+                    )
+                    # Redirect to the import record details
+                    return super().response_change(request, import_record)
+                else:
+                    messages.error(request, f'Import failed: {results.get("error", "Unknown error")}')
+                    return super().response_change(request, import_record)
+                    
+            except Exception as e:
+                messages.error(request, f'Error processing CSV: {str(e)}')
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception('Error in CSV import')
+        
+        return super().response_add(request, obj, post_url_unchanged)
+    
+    def has_delete_permission(self, request, obj=None):
+        """Allow deletion of import records"""
+        return True

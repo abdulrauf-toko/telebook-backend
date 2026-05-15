@@ -127,7 +127,7 @@ class Agent(models.Model):
 
         with transaction.atomic():
             super().save(*args, **kwargs)
-            self._sync_freeswitch_user(old_agent) 
+            # self._sync_freeswitch_user(old_agent) 
 
     def delete(self, *args, **kwargs):
         extension = self.extension
@@ -286,7 +286,8 @@ class Campaign(models.Model):
 
     CAMPAIGN_TYPE_CHOICES = [
         ('saddar_growth', 'Saddar Growth'), #every day campaign for saddar
-        ('rupin_emi', 'Rupin EMI') #rupin emi followups. 
+        ('rupin_emi', 'Rupin EMI'), #rupin emi followups. 
+        ('oscar', 'Oscar') 
     ]
 
     SEGMENT_CHOICES = [
@@ -510,3 +511,82 @@ class Lead(models.Model):
     
     def __str__(self):
         return f"{self.customer_name} ({self.phone_number})"
+
+
+class BulkLeadImport(models.Model):
+    """
+    Model to track bulk lead imports from CSV files.
+    
+    Stores metadata about imported campaigns and leads, including:
+    - Campaign type selected during import
+    - Number of records processed
+    - Status and any error messages
+    """
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    campaign_type = models.CharField(
+        max_length=30,
+        choices=Campaign.CAMPAIGN_TYPE_CHOICES,
+        help_text="Campaign type selected during import"
+    )
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        db_index=True
+    )
+    
+    total_records = models.PositiveIntegerField(
+        default=0,
+        help_text="Total records in CSV"
+    )
+    
+    processed_records = models.PositiveIntegerField(
+        default=0,
+        help_text="Successfully processed records"
+    )
+    
+    campaigns_created = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of campaigns created"
+    )
+    
+    leads_created = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of leads created"
+    )
+    
+    leads_updated = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of leads updated"
+    )
+    
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Error details if import failed"
+    )
+    
+    details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional import details (agent errors, etc.)"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Bulk Lead Import'
+        verbose_name_plural = 'Bulk Lead Imports'
+    
+    def __str__(self):
+        return f"Import {self.id} - {self.campaign_type} ({self.status})"
