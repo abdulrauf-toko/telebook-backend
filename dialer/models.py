@@ -17,6 +17,7 @@ class Team(models.Model):
         ('saddar_growth', "Saddar Growth"),
         ('rupin_emi', "Rupin EMI"),
         ('oscar', "Oscar"),
+        ('other', 'Other'),
     ]
 
     name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
@@ -287,7 +288,8 @@ class Campaign(models.Model):
     CAMPAIGN_TYPE_CHOICES = [
         ('saddar_growth', 'Saddar Growth'), #every day campaign for saddar
         ('rupin_emi', 'Rupin EMI'), #rupin emi followups. 
-        ('oscar', 'Oscar') 
+        ('oscar', 'Oscar'),
+        ('emi-survey', 'EMI Survey'), # one time campaign for calling rupin emi leads to ask survey questions.
     ]
 
     SEGMENT_CHOICES = [

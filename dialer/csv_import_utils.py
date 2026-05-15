@@ -69,6 +69,9 @@ def normalize_phone_number(phone_number):
     # Handle 92 prefix (but not 920+, which is already a valid format)
     elif normalized.startswith('92') and not normalized.startswith('920'):
         normalized = '0' + normalized[2:]
+    # Prepend 0 for numbers that don't start with 0
+    elif not normalized.startswith('0'):
+        normalized = '0' + normalized
     
     if not normalized:
         raise PhoneNumberValidationError(f"Phone number '{phone_number}' is empty after normalization")
