@@ -7,8 +7,6 @@ relationship management and error handling.
 
 import csv
 import io
-import re
-from datetime import datetime
 from django.db import transaction
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -125,7 +123,7 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
         csv_reader = csv.DictReader(io.StringIO(csv_content))
         
         # Validate headers
-        required_headers = {'Agent Username', 'Phone Number', 'Address', 'City'}
+        required_headers = {'Agent Username', 'Phone Number', 'Address', 'City', 'Name'}
         if not csv_reader.fieldnames:
             raise CSVImportError("CSV file is empty")
         
@@ -195,7 +193,7 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                             created_at__date=today,
                             defaults={
                                 'campaign_id': f"{agent.extension}-{segment}-{today.strftime('%Y%m%d')}",
-                                'campaign_name': f"{agent.extension} - {segment} - {today}",
+                                'campaign_name': f"{agent.user.username} - {segment} - {today}",
                                 'campaign_type': campaign_type,
                                 'active': True,
                             }
@@ -210,6 +208,7 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                     for row_idx, row in rows:
                         try:
                             phone_number = row.get('Phone Number', '').strip()
+                            name = row.get('Name', '').strip()
                             address = row.get('Address', '').strip()
                             city = row.get('City', '').strip()
                             
@@ -222,6 +221,16 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                                 })
                                 continue
                             
+                            # Skip if phone contains alphabets
+                            if any(c.isalpha() for c in phone_number):
+                                results['lead_errors'].append({
+                                    'row': row_idx,
+                                    'agent': agent_username,
+                                    'phone_number': phone_number,
+                                    'error': f"Invalid phone number '{phone_number}': contains alphabetic characters"
+                                })
+                                continue
+
                             # Normalize phone number
                             try:
                                 normalized_phone = normalize_phone_number(phone_number)
@@ -233,13 +242,13 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                                     'error': str(e)
                                 })
                                 continue
-                            
+
                             # Get or create lead
                             lead, created = Lead.objects.get_or_create(
                                 phone_number=normalized_phone,
                                 campaign=campaign,
                                 defaults={
-                                    'customer_name': phone_number,  # Use phone as fallback name
+                                    'customer_name': name or normalized_phone,
                                     'address': address,
                                     'city': city,
                                     'status': 'pending',
@@ -247,16 +256,16 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                                     'max_attempts': 1,
                                 }
                             )
-                            
+
                             if created:
                                 results['leads_created'] += 1
                             else:
-                                # Update existing lead if address/city changed
+                                if name and lead.customer_name != name:
+                                    lead.customer_name = name
                                 if address and lead.address != address:
                                     lead.address = address
                                 if city and lead.city != city:
                                     lead.city = city
-                                # Mark as pending if not already processed
                                 if lead.status in ['pending', 'failed', 'invalid']:
                                     lead.status = 'pending'
                                     lead.attempt_count = 0
