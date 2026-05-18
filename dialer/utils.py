@@ -269,11 +269,13 @@ def validate_and_cleanup_agent_states(fs):
         active_calls = conn.hgetall(ACTIVE_CALLS_REDIS_KEY)
         current_time = time.time()
         cleanup_count = 0
+        registered_extensions = get_registered_extensions(fs)
         
         for agent_id, raw_agent_data in all_agent_states.items():
             try:
                 agent_data = json.loads(raw_agent_data)
-                registered = is_user_registered(fs, agent_id)
+                extension = get_agent_extension(agent_id)
+                registered = extension in registered_extensions #user has web socket connection in Freeswitch
                 if not registered and agent_data.get('state') == 'idle':
                     remove_agent_from_cache(agent_id)
                     log_agent_authentication_action(int(agent_id), 'logout')
@@ -1026,6 +1028,18 @@ def build_originate_command(
     except Exception as exc:
         logger.exception(f"Error building originate command: {exc}")
         return None
+
+def get_registered_extensions(fs):
+    result = fs.api("show registrations")
+    if not result:
+        return set()
+    registered = set()
+    for line in result.split("\n"):
+        if line and not line.startswith("reg_user") and "total" not in line:
+            parts = line.split(",")
+            if parts[0].isdigit():
+                registered.add(parts[0])
+    return registered
 
 def is_user_registered(fs, id: str) -> bool:
     extension = get_agent_extension(id)
