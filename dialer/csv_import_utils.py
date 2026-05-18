@@ -249,7 +249,6 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                             # Get or create lead
                             lead, created = Lead.objects.get_or_create(
                                 phone_number=normalized_phone,
-                                campaign=campaign,
                                 defaults={
                                     'customer_name': name or normalized_phone,
                                     'address': address,
