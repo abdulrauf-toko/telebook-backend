@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import unquote, urlparse
 from django.utils import timezone
 from voice_orchestrator.celery import app
+from voice_orchestrator.freeswitch import FreeSwitchManager
 from .utils import construct_queue_object, flush_redis_data, make_campaigns_inactive, add_to_priority_queue_mapping, \
         validate_and_cleanup_agent_states, check_and_refill_queue, acquire_dialer_lock, process_priority_queue, \
         process_secondary_queue, release_dialer_lock, reset_selected_campaign
@@ -31,6 +32,7 @@ PKT = pytz.timezone("Asia/Karachi")
 @app.task(bind=True)
 def initiate_dialer_cycle(self):
     try:
+            
         # Step 0: Acquire execution lock to prevent concurrent runs
         if not acquire_dialer_lock():
             logger.info("Dialer already in execution, skipping cycle")
@@ -40,50 +42,51 @@ def initiate_dialer_cycle(self):
                 'timestamp': timezone.now().isoformat()
             }
         
-
-        logger.info("=== DIALER CYCLE START ===")
-        cycle_start = timezone.now()
-        validate_and_cleanup_agent_states() #cleanup before processing to ensure we have the most accurate agent states. 
+        with FreeSwitchManager() as fs:
+        
+            logger.info("=== DIALER CYCLE START ===")
+            cycle_start = timezone.now()
+            validate_and_cleanup_agent_states(fs) #cleanup before processing to ensure we have the most accurate agent states. 
 
         
-        # Step 1: Calculate effective agent capacity
-        agent_capacity = len(get_all_idle_agents_in_cache(check_call_id=True, check_state=True))
-        
-        if agent_capacity <= 0:
-            return {
-                'status': 'skipped',
-                'reason': 'no_agents_available',
-                'timestamp': cycle_start.isoformat()
+            # Step 1: Calculate effective agent capacity
+            agent_capacity = len(get_all_idle_agents_in_cache(check_call_id=True, check_state=True))
+
+            if agent_capacity <= 0:
+                return {
+                    'status': 'skipped',
+                    'reason': 'no_agents_available',
+                    'timestamp': cycle_start.isoformat()
+                }
+
+            # Step 2: Process priority queue
+            priority_dialed = process_priority_queue(fs)
+            agent_capacity -= priority_dialed
+
+            # logger.info(f"Priority queue processed: {priority_dialed} calls") 
+
+            # Step 3: Process secondary queue (predictive dialing)
+            secondary_dialed = process_secondary_queue(fs)
+
+            # aquisition_dialed = process_aquisition_queue()
+            # logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
+
+            # Step 4: Check and refill queues if needed
+            check_and_refill_queue()
+
+            cycle_duration = (timezone.now() - cycle_start).total_seconds()
+            total_calls_dialed = secondary_dialed
+
+            metrics = {
+                'timestamp': cycle_start.isoformat(),
+                'duration_seconds': cycle_duration,
+                'agent_capacity': agent_capacity,
+                'priority_calls_dialed': priority_dialed,
+                'secondary_calls_dialed': secondary_dialed,
+                'total_calls_dialed': total_calls_dialed
             }
-        
-        # Step 2: Process priority queue
-        priority_dialed = process_priority_queue()
-        agent_capacity -= priority_dialed
-        
-        # logger.info(f"Priority queue processed: {priority_dialed} calls") 
-        
-        # Step 3: Process secondary queue (predictive dialing)
-        secondary_dialed = process_secondary_queue()
-        
-        # aquisition_dialed = process_aquisition_queue()
-        # logger.info(f"Aquisition queue processed: {aquisition_dialed} calls")
 
-        # Step 4: Check and refill queues if needed
-        check_and_refill_queue()
-        
-        cycle_duration = (timezone.now() - cycle_start).total_seconds()
-        total_calls_dialed = secondary_dialed
-        
-        metrics = {
-            'timestamp': cycle_start.isoformat(),
-            'duration_seconds': cycle_duration,
-            'agent_capacity': agent_capacity,
-            'priority_calls_dialed': priority_dialed,
-            'secondary_calls_dialed': secondary_dialed,
-            'total_calls_dialed': total_calls_dialed
-        }
-        
-        logger.info(f"Dialer Cycle Metrics: \n{metrics}")
+            logger.info(f"Dialer Cycle Metrics: \n{metrics}")
             
     except Exception as exc:
         logger.exception(f"Error in dialer cycle: {exc}")

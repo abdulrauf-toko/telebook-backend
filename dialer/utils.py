@@ -248,7 +248,7 @@ def get_aquisition_set():
         return set()
 
 
-def validate_and_cleanup_agent_states():
+def validate_and_cleanup_agent_states(fs):
     """
     Validates all agent states and handles orphaned calls.
     
@@ -273,7 +273,7 @@ def validate_and_cleanup_agent_states():
         for agent_id, raw_agent_data in all_agent_states.items():
             try:
                 agent_data = json.loads(raw_agent_data)
-                registered = is_user_registered(agent_id)
+                registered = is_user_registered(fs, agent_id)
                 if not registered and agent_data.get('state') == 'idle':
                     remove_agent_from_cache(agent_id)
                     log_agent_authentication_action(int(agent_id), 'logout')
@@ -347,7 +347,7 @@ def release_dialer_lock():
         logger.error(f"Error releasing dialer lock: {e}")
         return False
 
-def process_priority_queue() -> int:
+def process_priority_queue(fs) -> int:
     """
     Process priority queue with 1:1 agent-to-contact assignment.
     """
@@ -383,6 +383,7 @@ def process_priority_queue() -> int:
                         
                         # Originate call
                         calls_dialed, leads_left = make_outbound_call_helper(
+                            fs=fs,
                             agent_id=agent_id,
                             leads=leads,
                             calls_to_make=1 #one to one mapping for priority queue
@@ -426,7 +427,7 @@ def process_priority_queue() -> int:
 # ALGORITHM IMPLEMENTATION - STEP 3: PROCESS SECONDARY QUEUE
 # ============================================================================
 
-def process_secondary_queue() -> int:
+def process_secondary_queue(fs) -> int:
     from events.utils import is_agent_idle_in_cache
     total_calls_dialed = 0
     lock_key = f"{AGENT_LEAD_MAPPING_REDIS_KEY}:lock"
@@ -474,7 +475,7 @@ def process_secondary_queue() -> int:
                             logger.info(f"no available agent found for agent_id {agent_id}, skipping predictive dial")
                             continue
                         
-                        calls_dialed, leads_left = make_outbound_call_helper(agent_id, leads, calls_to_make=dial_multiplier)
+                        calls_dialed, leads_left = make_outbound_call_helper(fs, agent_id, leads, calls_to_make=dial_multiplier)
                         total_calls_dialed += calls_dialed
                         secondary_queue[agent_id] = leads_left
                     
@@ -811,7 +812,7 @@ def get_agent_extension(agent_id):
     mapping = get_agent_extension_mapping_from_cache()
     return mapping[str(agent_id)]
 
-def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
+def make_outbound_call_helper(fs, agent_id, leads, calls_to_make=1):
     from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache, is_agent_idle_in_cache
 
     calls_dialed = 0
@@ -819,7 +820,7 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
 
     auto_bridge = calls_to_make == 1
     # park = calls_to_make > 1
-
+    
     if agent_id == '0' and auto_bridge:
         agent_id = peek_next_available_agent('sales')
         if not agent_id:
@@ -847,6 +848,7 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
             continue
         
         success, call_uuid = originate_call(
+            fs=fs,
             agent_id=agent_id,
             phone_number=phone_number,
             payload=payload,
@@ -884,7 +886,7 @@ def make_outbound_call_helper(agent_id, leads, calls_to_make=1):
     return calls_dialed, list(lead_queue)
 
 
-def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
+def make_outbound_call_helper_aquisition(fs, agent_id, leads, calls_to_make=1):
     from events.utils import add_active_call_in_cache, mark_agent_busy_in_cache
     
     calls_dialed = 0
@@ -907,6 +909,7 @@ def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
             continue
         
         success, call_uuid = originate_call(
+            fs=fs,
             agent_id=None, #decide after pick up
             phone_number=phone_number,
             payload=payload,
@@ -937,6 +940,7 @@ def make_outbound_call_helper_aquisition(agent_id, leads, calls_to_make=1):
 
 
 def originate_call(
+    fs,
     phone_number: str,
     agent_id: Optional[str] = None,
     payload: Optional[dict] = None,
@@ -957,7 +961,7 @@ def originate_call(
         if not originate_command:
             raise Exception("originate command failed")
         
-        job_response = fs_manager.bgapi(originate_command)
+        job_response = fs.bgapi(originate_command)
 
         if job_response and "+OK" in job_response:
             job_uuid = job_response.split(" ")[-1]
@@ -1023,9 +1027,9 @@ def build_originate_command(
         logger.exception(f"Error building originate command: {exc}")
         return None
 
-def is_user_registered(id: str) -> bool:
+def is_user_registered(fs, id: str) -> bool:
     extension = get_agent_extension(id)
-    result = fs_manager.api("show registrations")
+    result = fs.api("show registrations")
     logger.info(f"Checking registration for extension {extension}: {result}")
     if not result:
         return False
