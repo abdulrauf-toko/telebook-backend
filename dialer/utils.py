@@ -1026,6 +1026,7 @@ def build_originate_command(
 def is_user_registered(id: str) -> bool:
     extension = get_agent_extension(id)
     result = fs_manager.api("show registrations")
+    logger.info(f"Checking registration for extension {extension}: {result}")
     if not result:
         return False
     for line in result.split("\n"):
