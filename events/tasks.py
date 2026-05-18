@@ -388,6 +388,7 @@ def upload_call_recording_to_s3(log_obj, recording_path):
 @app.task
 def daily_start_routine():
     from dialer.utils import create_emi_campaigns
-    from dialer.udhaar_utils import fetch_and_store_telebook_campaign
+    from dialer.udhaar_utils import fetch_and_store_telebook_campaign, sync_emi_converted_leads
     create_emi_campaigns()
     fetch_and_store_telebook_campaign()
+    sync_emi_converted_leads()
