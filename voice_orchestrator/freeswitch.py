@@ -49,6 +49,13 @@ class FreeSwitchManager:
                 logger.error(f"BGAPI failed: {e}")
                 self._esl = None
         return None
-
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._esl:
+            self._esl.stop()
+    
 # Global instance
 fs_manager = FreeSwitchManager()
