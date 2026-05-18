@@ -246,32 +246,37 @@ def process_csv_import(csv_file, campaign_type, segment='other', import_record=N
                                 })
                                 continue
 
-                            # Get or create lead
-                            lead, created = Lead.objects.get_or_create(
-                                phone_number=normalized_phone,
-                                defaults={
-                                    'customer_name': name or normalized_phone,
-                                    'address': address,
-                                    'city': city,
-                                    'status': 'pending',
-                                    'attempt_count': 0,
-                                    'max_attempts': 1,
-                                }
-                            )
-
-                            if created:
-                                results['leads_created'] += 1
+                            # Use latest existing lead for this phone number, if duplicates exist.
+                            lead = Lead.objects.filter(phone_number=normalized_phone).order_by('-created_at', '-id').first()
+                            if lead is None:
+                                lead = Lead.objects.create(
+                                    phone_number=normalized_phone,
+                                    customer_name=name or normalized_phone,
+                                    address=address,
+                                    city=city,
+                                    status='pending',
+                                    attempt_count=0,
+                                    max_attempts=1,
+                                    campaign=campaign,
+                                )
+                                created = True
                             else:
+                                created = False
                                 if name and lead.customer_name != name:
                                     lead.customer_name = name
                                 if address and lead.address != address:
                                     lead.address = address
                                 if city and lead.city != city:
                                     lead.city = city
-                                if lead.status in ['pending', 'failed', 'invalid']:
-                                    lead.status = 'pending'
-                                    lead.attempt_count = 0
+                                if lead.campaign != campaign:
+                                    lead.campaign = campaign
+                                
+                                lead.status = 'pending'
                                 lead.save()
+
+                            if created:
+                                results['leads_created'] += 1
+                            else:
                                 results['leads_updated'] += 1
                             
                             results['processed_records'] += 1
