@@ -270,6 +270,7 @@ def validate_and_cleanup_agent_states(fs):
         current_time = time.time()
         cleanup_count = 0
         registered_extensions = get_registered_extensions(fs)
+        logger.info(f"Registered extensions: {registered_extensions}")
         
         for agent_id, raw_agent_data in all_agent_states.items():
             try:
