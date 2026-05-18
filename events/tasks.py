@@ -259,11 +259,11 @@ def sync_to_db(self):
                 talk_time_seconds=billable_seconds
             )
 
-            if call_status == 'answered':
-                recording_path = _resolve_recording_path(recording_path)
-                recording_url = upload_call_recording_to_s3(call_log, recording_path)
-                if recording_url: #success upload
-                    delete_local_file(recording_path)
+            # if call_status == 'answered':
+            #     recording_path = _resolve_recording_path(recording_path)
+            #     recording_url = upload_call_recording_to_s3(call_log, recording_path)
+            #     if recording_url: #success upload
+            #         delete_local_file(recording_path)
 
             if call_status in ['answered', 'no_answer', 'busy', 'invalid'] and lead_id:
                 if call_status == 'answered':
