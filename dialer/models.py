@@ -138,7 +138,7 @@ class Agent(models.Model):
                 fs_delete_user(extension)
 
     def __str__(self):
-        return f"{self.id} ({self.extension})"
+        return f"{self.user.username} {self.id} ({self.extension})"
 
 
 class CallLog(models.Model):

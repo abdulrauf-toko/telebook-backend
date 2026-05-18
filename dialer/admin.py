@@ -32,7 +32,7 @@ class TeamAdmin(admin.ModelAdmin):
 # Admin for Agent
 @admin.register(Agent)
 class AgentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'is_active', 'created_at')
+    list_display = ('id', 'is_active', 'created_at', "user__username", 'extension')
     list_filter = ('is_active', 'teams', 'created_at')
     filter_horizontal = ('teams',)
     # inlines = [CallLogInline]
@@ -41,7 +41,7 @@ class AgentAdmin(admin.ModelAdmin):
 @admin.register(CallLog)
 class CallLogAdmin(admin.ModelAdmin):
     list_display = ('call_id', 'agent', 'to_number', 'status', 'initiated_at', 'duration_seconds')
-    # list_filter = ('status', 'agent', 'campaign', 'initiated_at')
+    list_filter = ('status', 'disconnect_reason', 'agent', 'initiated_at')
     search_fields = ('call_id', 'lead__phone_number')
     readonly_fields = ('call_id', 'initiated_at', 'ended_at', 'duration_seconds')
     date_hierarchy = 'initiated_at'
@@ -87,10 +87,9 @@ class CallLogExportsAdmin(admin.ModelAdmin):
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
     list_display = ('campaign_id', 'campaign_name', 'agent', 'segment', 'created_at')
-    # list_filter = ('segment', 'status', 'agent', 'created_at')
+    list_filter = ('agent', 'created_at')
     search_fields = ('campaign_id', 'campaign_name', 'agent__extension')
-    # readonly_fields = ('created_at', 'updated_at')
-    # inlines = [LeadInline]
+    date_hierarchy = 'created_at'
 
 # Admin for Lead
 @admin.register(Lead)
