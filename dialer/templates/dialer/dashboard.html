@@ -5,728 +5,637 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Dashboard</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #1d4ed8;
+            --primary-light: #eff6ff;
+            --primary-dark: #1e3a8a;
+            --success: #16a34a;
+            --success-light: #f0fdf4;
+            --warning: #d97706;
+            --warning-light: #fffbeb;
+            --danger: #dc2626;
+            --danger-light: #fef2f2;
+            --neutral: #6b7280;
+            --neutral-light: #f9fafb;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-secondary: #6b7280;
+            --white: #ffffff;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+            --shadow: 0 4px 12px rgba(0,0,0,.08);
+            --radius: 10px;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f3f4f6;
             min-height: 100vh;
-            padding: 20px;
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        /* Login Form Styles */
-        .login-container {
+        /* ── TOP NAV ── */
+        .topbar {
+            background: var(--primary-dark);
+            padding: 0 28px;
+            height: 56px;
             display: flex;
-            justify-content: center;
             align-items: center;
-            min-height: 100vh;
-        }
-
-        .login-card {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            width: 100%;
-            max-width: 400px;
-        }
-
-        .login-card h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #333;
-            font-size: 28px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 600;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .error-message {
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            padding: 12px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        /* Dashboard Styles */
-        .dashboard-header {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            display: flex;
             justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .topbar-brand {
+            color: var(--white);
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -.2px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .topbar-brand svg { opacity: .85; }
+        .topbar-actions { display: flex; align-items: center; gap: 10px; }
+        .topbar-agent-name {
+            color: rgba(255,255,255,.75);
+            font-size: 13px;
+        }
+        .topbar-agent-ext {
+            background: rgba(255,255,255,.12);
+            color: var(--white);
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .btn-ghost {
+            background: rgba(255,255,255,.1);
+            color: rgba(255,255,255,.85);
+            border: 1px solid rgba(255,255,255,.18);
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background .15s;
+            text-decoration: none;
+            display: inline-flex;
             align-items: center;
         }
+        .btn-ghost:hover { background: rgba(255,255,255,.18); }
 
-        .dashboard-header h1 {
-            color: #333;
-            font-size: 28px;
-        }
+        /* ── MAIN CONTENT ── */
+        .main { max-width: 1280px; margin: 0 auto; padding: 24px 20px; }
 
-        .dashboard-header .agent-info {
-            text-align: right;
-        }
-
-        .dashboard-header .agent-name {
-            font-size: 18px;
-            color: #667eea;
-            font-weight: 600;
-        }
-
-        .dashboard-header .agent-extension {
-            font-size: 14px;
-            color: #999;
-        }
-
-        .change-user-btn {
-            margin-top: 10px;
-            padding: 8px 16px;
-            background: #f0f0f0;
-            color: #333;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .change-user-btn:hover {
-            background: #e0e0e0;
-        }
-
-        .date-filter-section {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        /* ── PAGE HEADER ── */
+        .page-header {
             display: flex;
-            align-items: flex-end;
-            gap: 15px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            gap: 16px;
+            flex-wrap: wrap;
         }
-
-        .date-filter-group {
-            flex: 1;
+        .page-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text);
         }
+        .page-subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
 
-        .date-filter-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
+        /* ── DATE FILTER ── */
+        .filter-bar {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 22px;
+            box-shadow: var(--shadow-sm);
+            flex-wrap: wrap;
+        }
+        .filter-label {
+            font-size: 13px;
             font-weight: 600;
-            font-size: 14px;
+            color: var(--text-secondary);
+            white-space: nowrap;
         }
-
-        .date-filter-group input {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .date-filter-group input:focus {
+        .filter-bar input[type="date"] {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 12px;
+            font-size: 13px;
+            color: var(--text);
             outline: none;
-            border-color: #667eea;
+            transition: border-color .15s;
         }
-
-        .date-filter-btn {
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+        .filter-bar input[type="date"]:focus { border-color: var(--primary); }
+        .btn-primary {
+            background: var(--primary);
+            color: var(--white);
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
+            padding: 8px 18px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: background .15s;
+            white-space: nowrap;
         }
+        .btn-primary:hover { background: var(--primary-dark); }
 
-        .date-filter-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        /* Stats Grid */
+        /* ── STAT CARDS ── */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
         }
-
         .stat-card {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            border-left: 5px solid #667eea;
-            transition: transform 0.3s, box-shadow 0.3s;
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        .stat-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 4px;
         }
+        .stat-icon.blue   { background: var(--primary-light); color: var(--primary); }
+        .stat-icon.green  { background: var(--success-light); color: var(--success); }
+        .stat-icon.yellow { background: var(--warning-light); color: var(--warning); }
+        .stat-icon.red    { background: var(--danger-light);  color: var(--danger); }
+        .stat-icon.gray   { background: #f3f4f6; color: #4b5563; }
+        .stat-icon svg    { width: 18px; height: 18px; }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1; }
+        .stat-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; }
 
-        .stat-card.answered {
-            border-left-color: #28a745;
+        /* ── SECTION CARD ── */
+        .card {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 22px;
+            overflow: hidden;
         }
-
-        .stat-card.failed {
-            border-left-color: #dc3545;
+        .card-header {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
-
-        .stat-card.no-answer {
-            border-left-color: #ffc107;
-        }
-
-        .stat-label {
-            font-size: 14px;
-            color: #999;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 8px;
-            letter-spacing: 0.5px;
-        }
-
-        .stat-value {
-            font-size: 32px;
+        .card-title {
+            font-size: 15px;
             font-weight: 700;
-            color: #333;
-        }
-
-        /* Call Logs Table */
-        .call-logs-section {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .call-logs-section h2 {
-            margin-bottom: 25px;
-            color: #333;
-            font-size: 22px;
+            color: var(--text);
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
-
-        .call-logs-section h2::before {
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .card-title .dot {
+            width: 3px;
+            height: 16px;
+            background: var(--primary);
             border-radius: 2px;
         }
+        .card-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
 
-        .call-logs-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .call-logs-table thead {
-            background: #f8f9fa;
-            border-bottom: 2px solid #ddd;
-        }
-
-        .call-logs-table th {
-            padding: 15px;
+        /* ── TABLES ── */
+        table { width: 100%; border-collapse: collapse; }
+        thead tr { background: #f9fafb; }
+        th {
+            padding: 11px 16px;
             text-align: left;
-            font-weight: 600;
-            color: #555;
+            font-size: 11px;
+            font-weight: 700;
             text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.5px;
+            letter-spacing: .6px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
         }
-
-        .call-logs-table td {
-            padding: 15px;
-            border-bottom: 1px solid #eee;
-            color: #333;
-        }
-
-        .call-logs-table tbody tr {
-            transition: background 0.2s;
-        }
-
-        .call-logs-table tbody tr:hover {
-            background: #f9f9f9;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .status-badge.answered {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-badge.failed {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .status-badge.no-answer {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .status-badge.busy {
-            background: #cfe2ff;
-            color: #084298;
-        }
-
-        .status-badge.cancelled {
-            background: #e2e3e5;
-            color: #383d41;
-        }
-
-        .status-badge.invalid {
-            background: #f5c2c7;
-            color: #842029;
-        }
-
-        .phone-number {
-            font-family: 'Courier New', monospace;
-            font-weight: 600;
-            color: #667eea;
-        }
-
-        .duration {
-            font-weight: 600;
-            color: #764ba2;
-        }
-
-        .no-logs-message {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-            font-size: 16px;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-        }
-
-        .empty-state svg {
-            width: 60px;
-            height: 60px;
-            margin-bottom: 20px;
-            color: #ddd;
-        }
-
-        .empty-state p {
-            color: #999;
-            font-size: 16px;
-        }
-
-        /* Campaigns Section */
-        .campaigns-section {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .campaigns-section h2 {
-            margin-bottom: 20px;
-            color: #333;
-            font-size: 22px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .campaigns-section h2::before {
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 2px;
-        }
-
-        .campaigns-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .campaigns-table thead {
-            background: #f8f9fa;
-            border-bottom: 2px solid #ddd;
-        }
-
-        .campaigns-table th {
-            padding: 12px 15px;
-            text-align: left;
-            font-weight: 600;
-            color: #555;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.5px;
-        }
-
-        .campaigns-table td {
-            padding: 14px 15px;
-            border-bottom: 1px solid #eee;
-            color: #333;
-        }
-
-        .campaigns-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-
-        .campaigns-table tbody tr:hover {
-            background: #f9f9f9;
-        }
-
-        .pending-badge {
-            display: inline-block;
-            background: #fff3cd;
-            color: #856404;
-            padding: 4px 12px;
-            border-radius: 20px;
+        td {
+            padding: 13px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            color: var(--text);
             font-size: 13px;
+            vertical-align: middle;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: #fafafa; }
+
+        /* ── BADGES ── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
             font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+            white-space: nowrap;
         }
+        .badge.answered  { background: var(--success-light); color: #15803d; }
+        .badge.failed    { background: var(--danger-light);  color: #b91c1c; }
+        .badge.no-answer { background: var(--warning-light); color: #b45309; }
+        .badge.busy      { background: #eff6ff; color: #1d4ed8; }
+        .badge.cancelled { background: #f3f4f6; color: #374151; }
+        .badge.invalid   { background: #fdf2f8; color: #9d174d; }
 
-        .pending-badge.zero {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .segment-tag {
+        .tag {
             display: inline-block;
-            background: #e8eafd;
-            color: #667eea;
-            padding: 4px 10px;
-            border-radius: 5px;
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 3px 10px;
+            border-radius: 4px;
             font-size: 12px;
             font-weight: 600;
             text-transform: capitalize;
         }
+        .count-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .count-badge.has-pending  { background: var(--warning-light); color: var(--warning); }
+        .count-badge.no-pending   { background: var(--success-light); color: var(--success); }
 
-        /* Responsive */
+        /* ── MONO / SPECIAL TEXT ── */
+        .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: #374151; }
+        .phone { font-weight: 600; color: var(--primary); font-size: 13px; }
+        .duration-val { font-weight: 600; color: #374151; }
+
+        /* ── RECORDING BUTTON ── */
+        .btn-record {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary);
+            cursor: pointer;
+            transition: all .15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .btn-record:hover { background: var(--primary-light); border-color: var(--primary); }
+        .btn-record:disabled { color: var(--text-secondary); cursor: not-allowed; border-color: var(--border); }
+        .btn-record:disabled:hover { background: transparent; }
+
+        /* ── EMPTY STATE ── */
+        .empty {
+            text-align: center;
+            padding: 52px 20px;
+            color: var(--text-secondary);
+        }
+        .empty svg { width: 48px; height: 48px; margin-bottom: 14px; color: #d1d5db; }
+        .empty p { font-size: 14px; }
+
+        /* ── LOGIN CARD ── */
+        .login-wrap {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f3f4f6;
+        }
+        .login-card {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 44px 40px;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: var(--shadow);
+        }
+        .login-logo {
+            width: 48px;
+            height: 48px;
+            background: var(--primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+        .login-logo svg { color: white; width: 26px; height: 26px; }
+        .login-card h1 { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 6px; }
+        .login-card p { text-align: center; color: var(--text-secondary); font-size: 13px; margin-bottom: 28px; }
+        .field { margin-bottom: 16px; }
+        .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+        .field input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(29,78,216,.1); }
+        .btn-login {
+            width: 100%;
+            padding: 11px;
+            background: var(--primary);
+            color: var(--white);
+            border: none;
+            border-radius: 7px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background .15s;
+            margin-top: 4px;
+        }
+        .btn-login:hover { background: var(--primary-dark); }
+        .alert-error {
+            background: var(--danger-light);
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 10px 14px;
+            border-radius: 7px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        /* ── RESPONSIVE ── */
         @media (max-width: 768px) {
-            .dashboard-header {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .dashboard-header .agent-info {
-                text-align: center;
-                margin-top: 15px;
-            }
-
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .date-filter-section {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .date-filter-group {
-                flex: 1;
-            }
-
-            .date-filter-group form {
-                flex-direction: column !important;
-            }
-
-            .date-filter-group input {
-                margin-bottom: 10px;
-            }
-
-            .date-filter-btn {
-                width: 100%;
-            }
-
-            .call-logs-table {
-                font-size: 14px;
-            }
-
-            .call-logs-table th,
-            .call-logs-table td {
-                padding: 10px 5px;
-            }
+            .topbar { padding: 0 16px; }
+            .main { padding: 16px 12px; }
+            .topbar-agent-name { display: none; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            th, td { padding: 10px 12px; }
+            .page-header { flex-direction: column; align-items: flex-start; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        {% if not agent %}
-            <!-- Login Form -->
-            <div class="login-container">
-                <div class="login-card">
-                    <h1>📞 Agent Dashboard</h1>
-                    {% if error_message %}
-                        <div class="error-message">{{ error_message }}</div>
-                    {% endif %}
-                    <form method="GET" action="">
-                        <div class="form-group">
-                            <label for="username">Username</label>
-                            <input 
-                                type="text" 
-                                id="username" 
-                                name="username" 
-                                placeholder="Enter your username"
-                                required
-                                autofocus
-                            />
-                        </div>
-                        <button type="submit" class="btn">View Dashboard</button>
-                    </form>
-                </div>
-            </div>
-        {% else %}
-            <!-- Dashboard Content -->
-            <div class="dashboard-header">
-                <h1>📊 Agent Dashboard</h1>
-                <div class="agent-info">
-                    <div class="agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</div>
-                    <div class="agent-extension">Extension: {{ agent.extension }}</div>
-                    <a href="{{ request.get_full_path }}" class="change-user-btn" style="display: inline-block; margin-top: 10px; text-decoration: none;">Refresh Stats</a>
-                    <form method="GET" action="" style="margin-top: 10px;">
-                        <button type="submit" class="change-user-btn">Switch User</button>
-                    </form>
-                </div>
-            </div>
 
-            <!-- Date Filter Section -->
-            <div class="date-filter-section">
-                <div class="date-filter-group">
-                    <label for="date_filter">📅 Select Date</label>
-                    <form method="GET" action="" style="display: flex; gap: 10px; align-items: flex-end;">
-                        <input type="hidden" name="username" value="{{ username }}">
-                        <input 
-                            type="date" 
-                            id="date_filter" 
-                            name="date_filter" 
-                            value="{{ selected_date }}"
-                            style="flex: 1;"
-                        />
-                        <button type="submit" class="date-filter-btn">Filter</button>
-                    </form>
-                </div>
+{% if not agent %}
+<!-- ── LOGIN ── -->
+<div class="login-wrap">
+    <div class="login-card">
+        <div class="login-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+            </svg>
+        </div>
+        <h1>Agent Dashboard</h1>
+        <p>Enter your username to view your stats</p>
+        {% if error_message %}
+            <div class="alert-error">{{ error_message }}</div>
+        {% endif %}
+        <form method="GET" action="">
+            <div class="field">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="e.g. john.doe" required autofocus>
             </div>
+            <button type="submit" class="btn-login">View Dashboard</button>
+        </form>
+    </div>
+</div>
 
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">Unique Phone Numbers Called</div>
-                    <div class="stat-value">{{ unique_phone_count }}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Leads Today</div>
-                    <div class="stat-value">{{ today_leads_count }}</div>
-                </div>
-                <div class="stat-card answered">
-                    <div class="stat-label">✓ Answered</div>
-                    <div class="stat-value">{{ stats.answered }}</div>
-                </div>
-                <div class="stat-card failed">
-                    <div class="stat-label">📞 Busy</div>
-                    <div class="stat-value">{{ stats.busy }}</div>
-                </div>
-                <div class="stat-card no-answer">
-                    <div class="stat-label">⏱ No Answer</div>
-                    <div class="stat-value">{{ stats.no_answer }}</div>
-                </div>
-                <div class="stat-card failed">
-                    <div class="stat-label">Logged Out Minutes</div>
-                    <div class="stat-value">{{ logged_out_minutes }}</div>
-                </div>
+{% else %}
+<!-- ── TOP NAV ── -->
+<header class="topbar">
+    <div class="topbar-brand">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+        </svg>
+        Agent Dashboard
+    </div>
+    <div class="topbar-actions">
+        <span class="topbar-agent-name">{{ agent.user.get_full_name|default:agent.user.username }}</span>
+        <span class="topbar-agent-ext">Ext {{ agent.extension }}</span>
+        <a href="{{ request.get_full_path }}" class="btn-ghost">Refresh</a>
+        <form method="GET" action="" style="display:inline;">
+            <button type="submit" class="btn-ghost">Switch User</button>
+        </form>
+    </div>
+</header>
+
+<!-- ── MAIN ── -->
+<main class="main">
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div>
+            <div class="page-title">{{ agent.user.get_full_name|default:agent.user.username }}</div>
+            <div class="page-subtitle">Extension {{ agent.extension }} &nbsp;·&nbsp; Call activity overview</div>
+        </div>
+    </div>
+
+    <!-- Date Filter -->
+    <div class="filter-bar">
+        <span class="filter-label">Date</span>
+        <form method="GET" action="" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <input type="hidden" name="username" value="{{ username }}">
+            <input type="date" id="date_filter" name="date_filter" value="{{ selected_date }}">
+            <button type="submit" class="btn-primary">Apply</button>
+        </form>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon blue">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>
             </div>
-
-            <!-- Active Campaigns Section -->
-            {% if active_campaigns %}
-            <div class="campaigns-section">
-                <h2>Active Campaigns</h2>
-                <table class="campaigns-table">
-                    <thead>
-                        <tr>
-                            <th>Segment</th>
-                            <th>Total Leads</th>
-                            <th>Pending Leads</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for campaign in active_campaigns %}
-                        <tr>
-                            <td><span class="segment-tag">{{ campaign.segment|default:"—" }}</span></td>
-                            <td>{{ campaign.total_leads }}</td>
-                            <td>
-                                <span class="pending-badge {% if campaign.pending_leads == 0 %}zero{% endif %}">
-                                    {{ campaign.pending_leads }}
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="stat-value">{{ today_leads_count }}</div>
+            <div class="stat-label">Total Leads</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon gray">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
             </div>
-            {% endif %}
+            <div class="stat-value">{{ unique_phone_count }}</div>
+            <div class="stat-label">Unique Numbers</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+            </div>
+            <div class="stat-value">{{ stats.answered }}</div>
+            <div class="stat-label">Answered</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon yellow">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            </div>
+            <div class="stat-value">{{ stats.no_answer }}</div>
+            <div class="stat-label">No Answer</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon red">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" /></svg>
+            </div>
+            <div class="stat-value">{{ stats.busy }}</div>
+            <div class="stat-label">Busy</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon gray">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>
+            </div>
+            <div class="stat-value">{{ logged_out_minutes }}</div>
+            <div class="stat-label">Logged-out Mins</div>
+        </div>
+    </div>
 
-            <!-- Call Logs Section -->
-            <div class="call-logs-section">
-                <h2>Call Logs - {{ selected_date|date:"D, M d, Y" }}</h2>
-                
-                {% if call_logs %}
-                    <table class="call-logs-table">
-                        <thead>
-                            <tr>
-                                <th>Time (PKT)</th>
-                                <th>UUID</th>
-                                <th>Lead Name</th>
-                                <th>Phone Number</th>
-                                <th>Status</th>
-                                <th>Duration (sec)</th>
-                                <th>Recording</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for log in call_logs %}
-                                <tr>
-                                    <td>{{ log.initiated_at_pkt }}</td>
-                                    <td class="phone-number">{{ log.call_uuid }}</td>
-                                    <td>{{ log.lead.customer_name|default:"N/A" }}</td>
-                                    <td class="phone-number">{{ log.lead.phone_number|default:log.to_number }}</td>
-                                    <td>
-                                        <span class="status-badge {{ log.status }}">
-                                            {{ log.get_status_display }}
-                                        </span>
-                                    </td>
-                                    <td class="duration">
-                                        {% if log.status == 'answered' %}
-                                            {{ log.duration_seconds }}
-                                        {% else %}
-                                            -
-                                        {% endif %}
-                                    </td>
-                                                                        <td>
-    {% if log.has_call_recording %}
-    <button
-        type="button"
-        class="btn"
-        data-recording-url="/api/api/dialer/call-recordings/{{ log.call_uuid }}/"
-        onclick="openRecording(this)"
-    >
-        View Recording
-    </button>
-    {% else %}
-    <button type="button" class="btn" disabled>View Recording</button>
+    <!-- Active Campaigns -->
+    {% if active_campaigns %}
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <div class="card-title"><span class="dot"></span>Active Campaigns</div>
+                <div class="card-subtitle">{{ active_campaigns|length }} campaign{{ active_campaigns|length|pluralize }} assigned</div>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Segment</th>
+                    <th>Total Leads</th>
+                    <th>Pending</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for campaign in active_campaigns %}
+                <tr>
+                    <td><span class="tag">{{ campaign.segment|default:"—" }}</span></td>
+                    <td>{{ campaign.total_leads }}</td>
+                    <td>
+                        <span class="count-badge {% if campaign.pending_leads == 0 %}no-pending{% else %}has-pending{% endif %}">
+                            {{ campaign.pending_leads }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
     {% endif %}
-</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                {% else %}
-                    <div class="empty-state">
-                        <p>No call logs for today yet. Start making calls!</p>
-                    </div>
-                {% endif %}
+
+    <!-- Call Logs -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <div class="card-title"><span class="dot"></span>Call Logs</div>
+                <div class="card-subtitle">{{ selected_date|date:"D, M d, Y" }}</div>
             </div>
+        </div>
+        {% if call_logs %}
+        <table class="call-logs-table">
+            <thead>
+                <tr>
+                    <th>Time (PKT)</th>
+                    <th>UUID</th>
+                    <th>Lead Name</th>
+                    <th>Phone Number</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Recording</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in call_logs %}
+                <tr>
+                    <td>{{ log.initiated_at_pkt }}</td>
+                    <td><span class="mono">{{ log.call_uuid }}</span></td>
+                    <td>{{ log.lead.customer_name|default:"N/A" }}</td>
+                    <td><span class="phone">{{ log.lead.phone_number|default:log.to_number }}</span></td>
+                    <td>
+                        <span class="badge {{ log.status }}">{{ log.get_status_display }}</span>
+                    </td>
+                    <td>
+                        {% if log.status == 'answered' %}
+                            <span class="duration-val">{{ log.duration_seconds }}s</span>
+                        {% else %}
+                            <span style="color:#9ca3af;">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.has_call_recording %}
+                        <button
+                            type="button"
+                            class="btn-record"
+                            data-recording-url="/api/api/dialer/call-recordings/{{ log.call_uuid }}/"
+                            onclick="openRecording(this)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" /></svg>
+                            Play
+                        </button>
+                        {% else %}
+                        <button type="button" class="btn-record" disabled>No Recording</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+            </svg>
+            <p>No call logs for {{ selected_date|date:"M d, Y" }}</p>
+        </div>
         {% endif %}
     </div>
-    <script>
-        document.addEventListener('click', async function (event) {
-            const button = event.target.closest('[data-recording-url]');
-            if (!button) {
-                return;
+
+</main>
+{% endif %}
+
+<script>
+    document.addEventListener('click', async function(event) {
+        const button = event.target.closest('[data-recording-url]');
+        if (!button) return;
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.textContent = 'Loading…';
+        try {
+            const response = await fetch(button.dataset.recordingUrl);
+            const data = await response.json();
+            if (!response.ok || !data.success || !data.recording_url) {
+                throw new Error(data.message || 'Recording not available');
             }
-
-            const originalText = button.textContent;
-            button.disabled = true;
-            button.textContent = 'Loading...';
-
-            try {
-                const response = await fetch(button.dataset.recordingUrl);
-                const data = await response.json();
-
-                if (!response.ok || !data.success || !data.recording_url) {
-                    throw new Error(data.message || 'Recording is not available');
-                }
-
-                window.open(data.recording_url, '_blank', 'noopener,noreferrer');
-            } catch (error) {
-                alert(error.message);
-            } finally {
-                button.disabled = false;
-                button.textContent = originalText;
-            }
-        });
-
-        function openRecording(btn) {
-            const url = btn.getAttribute('data-recording-url');
-            window.open(url, '_blank');
+            window.open(data.recording_url, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            button.disabled = false;
+            button.innerHTML = originalText;
         }
-    </script>
+    });
+
+    function openRecording(btn) {
+        window.open(btn.getAttribute('data-recording-url'), '_blank');
+    }
+</script>
 </body>
 </html>
