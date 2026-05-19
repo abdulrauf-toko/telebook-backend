@@ -367,8 +367,8 @@ def upload_days_call_recordings_to_s3_task():
         return 0
 
 
-@app.task
-def upload_call_recording_to_s3(log_obj, recording_path):
+@app.task(bind=True, max_retries=4, default_retry_delay=60)
+def upload_call_recording_to_s3(self, log_obj, recording_path):
     try:
         if isinstance(log_obj, int):
             log_obj = CallLog.objects.get(id=log_obj)
@@ -380,7 +380,7 @@ def upload_call_recording_to_s3(log_obj, recording_path):
                 if log_obj.initiated_at
                 else timezone.now().date()
             )
-        except Exception as e:
+        except Exception:
             recording_date = timezone.now().date()
         url = upload_call_recording(mp3_path, recording_date)
         log_obj.recording_url = url
@@ -391,9 +391,17 @@ def upload_call_recording_to_s3(log_obj, recording_path):
             logger.warning(f"Could not delete local recording (permission denied): {recording_path}")
         logger.info(f"Call recording successfully uploaded to S3. Accessible at: {url}")
         return url
+    except CallLog.DoesNotExist:
+        logger.error(f"CallLog not found for upload, skipping retry. log_obj={log_obj}")
+        return None
     except Exception as e:
-        logger.exception(f"Error uploading call recording to S3: {e}")
-        return None   
+        attempt = self.request.retries + 1
+        countdown = 60 * (2 ** self.request.retries)  # 60s, 120s, 240s, 480s
+        logger.warning(
+            f"Upload attempt {attempt}/{self.max_retries + 1} failed for {recording_path}: {e}. "
+            f"Retrying in {countdown}s."
+        )
+        raise self.retry(exc=e, countdown=countdown)
 
 @app.task
 def daily_start_routine():
