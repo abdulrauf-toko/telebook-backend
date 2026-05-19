@@ -680,6 +680,7 @@ def agent_dashboard(request):
         'stats': stats,
         'selected_date': selected_date.isoformat(),
         'logged_out_minutes': logged_out_minutes,
+        'refresh_url': request.get_full_path() if request.get_full_path().startswith('/api/api/') else f'/api{request.get_full_path()}',
     }
     
     return render(request, 'dialer/dashboard.html', context)
