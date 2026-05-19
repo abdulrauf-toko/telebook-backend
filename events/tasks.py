@@ -221,7 +221,10 @@ def sync_to_db(self):
     try: 
         for call_details in call_list:
             payload = call_details.get('payload', {})
-            lead_id = payload.get('lead_id', None)
+            try:
+                lead_id = payload.get('lead_id', None)
+            except Exception as e:
+                logger.error(f"Error occurred while fetching lead_id: {e}. Call details: {call_details}")
 
             disconnect_reason = call_details.get('disconnect_reason')
             initiated_at = call_details.get('initiated_at', None)
@@ -257,7 +260,8 @@ def sync_to_db(self):
                 duration_seconds=duration_seconds,
                 recording_url=recording_path,
                 call_direction=direction,
-                talk_time_seconds=billable_seconds
+                talk_time_seconds=billable_seconds,
+                auto_bridge=bool(auto_bridge)
             )
 
             # if call_status == 'answered':

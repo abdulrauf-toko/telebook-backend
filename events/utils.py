@@ -259,7 +259,8 @@ def connect_agent_to_call(agent_id, call_uuid, custom_uuid, phone_number=None):
     success = transfer_agent_to_call(call_uuid, agent_id, phone_number)
     if success:
         mark_agent_busy_in_cache(agent_id, custom_uuid)
-        update_active_call_in_cache(custom_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 
+        if not phone_number:
+            update_active_call_in_cache(custom_uuid, {"agent_id": agent_id, "connected_at": time.time()}) 
     else:
         logger.error(f"Failed to transfer call {call_uuid} to agent {agent_id}")
         disconnect_call(call_uuid, cause="LOSE_RACE")

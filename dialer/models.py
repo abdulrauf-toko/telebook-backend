@@ -203,6 +203,11 @@ class CallLog(models.Model):
         blank=True,
         help_text="Reason for call termination (e.g., NORMAL_CLEARING, NO_ANSWER)"
     )
+
+    auto_bridge = models.BooleanField(
+        default=False,
+        help_text="Whether the call was automatically bridged to an agent"
+    )
     
     # Timing
     initiated_at = models.DateTimeField(null=True, blank=True)

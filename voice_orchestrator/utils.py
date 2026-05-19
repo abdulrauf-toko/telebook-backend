@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from urllib.parse import unquote, urlparse
 
-CALL_LOGS_EXPORT_DIR = "/home/pbx"
+CALL_LOGS_EXPORT_DIR = "/home/pbx/call_logs_exports"
 
 
 _xml_lock = Lock()
@@ -379,8 +379,6 @@ def convert_wav_to_mp3(file_path: str) -> str:
         shutil.which("ffmpeg")
     )
 
-    # output_path = os.path.splitext(file_path)[0] + ".mp3"
-    # os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     file_name = os.path.splitext(os.path.basename(file_path))[0]
     output_path = f"/tmp/{file_name}.mp3"
 
@@ -408,7 +406,6 @@ def convert_wav_to_mp3(file_path: str) -> str:
         logger.error("Failed to convert wav to mp3: %s", exc.stderr)
         raise RuntimeError(f"ffmpeg conversion failed: {exc.stderr.strip()}") from exc
 
-    # os.remove(file_path)
     return output_path
 
 
