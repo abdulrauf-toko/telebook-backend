@@ -1,7 +1,7 @@
 import orjson as json
 from voice_orchestrator.redis import ACTIVE_CALL_LOCK_REDIS_KEY, SYNC_TO_DB_LOCK_REDIS_KEY, conn, AGENT_STATE_REDIS_KEY, AGENT_STATE_LOCK_REDIS_KEY, SLEEP, LOCK_TIMEOUTS, ACTIVE_CALLS_REDIS_KEY, SECONDARY_SALES_CUSTOMERS_WAITING_QUEUE_REDIS_KEY, SUPPORT_CUSTOMERS_WAITING_QUEUE_REDIS_KEY
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from voice_orchestrator.freeswitch import fs_manager
 from dialer.utils import add_call_to_completed_list, get_agent_extension, add_agent_to_group_queue, remove_agent_from_group_queue
@@ -370,7 +370,7 @@ def fs_timestamp_to_datetime(ts):
         ts = ts / 1_000_000
     elif ts > 1e12:      # milliseconds (13 digits)
         ts = ts / 1_000
-    return datetime.fromtimestamp(ts)
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
 def log_agent_authentication_action(agent_id, action):
