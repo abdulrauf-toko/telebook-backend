@@ -225,6 +225,7 @@ def sync_to_db(self):
                 lead_id = payload.get('lead_id', None)
             except Exception as e:
                 logger.error(f"Error occurred while fetching lead_id: {e}. Call details: {call_details}")
+                lead_id = None
 
             disconnect_reason = call_details.get('disconnect_reason')
             initiated_at = call_details.get('initiated_at', None)
