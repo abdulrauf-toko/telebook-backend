@@ -271,10 +271,10 @@ def sync_to_db(self):
             #     if recording_url: #success upload
             #         delete_local_file(recording_path)
 
-            if call_status in ['answered', 'no_answer', 'busy', 'invalid'] and lead_id:
+            if call_status in ['answered', 'no_answer', 'busy', 'invalid', 'lose_race', 'user_not_registered'] and lead_id:
                 if call_status == 'answered':
                     call_completed_lead_ids.append(lead_id)
-                elif call_status in ['no_answer', 'busy']:
+                elif call_status in ['no_answer', 'busy', 'lose_race', 'user_not_registered']:
                     call_not_picked_lead_ids.append(lead_id)
                 elif call_status == 'invalid':
                     invalid_lead_ids.append(lead_id)
