@@ -380,7 +380,10 @@ def upload_call_recording_to_s3(log_obj, recording_path):
         url = upload_call_recording(mp3_path, recording_date)
         log_obj.recording_url = url
         log_obj.save()
-        os.remove(recording_path)
+        try:
+            os.remove(recording_path)
+        except PermissionError:
+            logger.warning(f"Could not delete local recording (permission denied): {recording_path}")
         logger.info(f"Call recording successfully uploaded to S3. Accessible at: {url}")
         return url
     except Exception as e:
